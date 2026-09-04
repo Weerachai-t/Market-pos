@@ -5,8 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Award, Banknote, BarChart3, Boxes, History, Home, Minus, Package,
   Pencil, Phone, Plus, QrCode, RefreshCw, Search, Settings, ShoppingCart,
-  Trash2, UserPlus, UserRound, X,
+  LogOut, Trash2, UserPlus, UserRound, X,
 } from 'lucide-react';
+import AuthScreen from './components/AuthScreen';
+import EmployeePanel from './components/EmployeePanel';
+import ReportPanel from './components/ReportPanel';
 
 type Product = { id:number; sku?:string; barcode?:string; qr_code?:string; name:string; price:number|string; cost?:number|string; stock_qty:number|string; low_stock_qty?:number|string; unit:string; category?:string };
 type Cart = Product & { qty:number };
@@ -14,6 +17,7 @@ type Dashboard = { todayRevenue:number; todayBills:number; products:number; lowS
 type Customer = { id:number; name:string; phone:string; points_balance:number|string; total_spent:number|string; created_at?:string };
 type PointTransaction = { id:number; sale_id?:number; transaction_type:'earn'|'redeem'|'adjust'; points:number; balance_after:number; description?:string; created_at:string };
 type CustomerDetail = { customer:Customer; transactions:PointTransaction[]; sales:Array<{id:number;receipt_no:string;sold_at:string;total:number|string;points_earned:number;points_redeemed:number}> };
+type Employee = { id:number;username:string;display_name:string;role:'admin'|'cashier';permissions:Record<string,boolean> };
 
 const blank = { sku:'', barcode:'', qr_code:'', name:'', category:'', cost:'0', price:'0', stock_qty:'0', low_stock_qty:'5', unit:'ชิ้น' };
 const emoji = (category?:string) => category === 'เครื่องดื่ม' ? '🥤' : category === 'อาหาร' ? '🍱' : category === 'เสื้อผ้า' ? '👕' : '📦';
@@ -43,10 +47,27 @@ export default function Page() {
   const [showMemberForm,setShowMemberForm] = useState(false);
   const [memberForm,setMemberForm] = useState({ name:'', phone:'' });
   const [customerDetail,setCustomerDetail] = useState<CustomerDetail|null>(null);
+  const [employee,setEmployee] = useState<Employee|null>(null);
+  const [authLoading,setAuthLoading] = useState(true);
+  const [setupRequired,setSetupRequired] = useState(false);
   const checkoutReference = useRef<string|null>(null);
 
-  useEffect(() => { setPromptpay(localStorage.getItem('promptpay') || ''); load(); }, []);
-  useEffect(() => { if (tab === 'สมาชิก') loadCustomers(); }, [tab]);
+  useEffect(() => { setPromptpay(localStorage.getItem('promptpay') || ''); refreshSession(); }, []);
+  useEffect(() => { if (employee && tab === 'สมาชิก') loadCustomers(); }, [tab,employee]);
+
+  const refreshSession = async () => {
+    setAuthLoading(true);
+    try {
+      const response=await fetch('/api/auth/session',{cache:'no-store'});
+      const data=await response.json();
+      setSetupRequired(Boolean(data.setupRequired));
+      setEmployee(data.employee||null);
+      if(data.employee)await load();
+    } finally { setAuthLoading(false); }
+  };
+
+  const can = (permission:string) => employee?.role === 'admin' || employee?.permissions?.[permission] === true;
+  const logout = async () => { await fetch('/api/auth/logout',{method:'POST'}); setEmployee(null); setCart([]); setTab('ขาย'); };
 
   const load = async () => {
     setLoading(true);
@@ -164,17 +185,20 @@ export default function Page() {
     setStockProduct(null); setStockQty(''); await load();
   };
 
+  if (authLoading) return <main className="authShell"><div className="authCard"><p>กำลังตรวจสอบบัญชี...</p></div></main>;
+  if (!employee) return <AuthScreen setupRequired={setupRequired} onAuthenticated={refreshSession}/>;
+
   return <main className="shell">
-    <header><div><small>MARKET POS • ONLINE</small><h1>{tab}</h1></div><button className="avatar" onClick={load} aria-label="รีเฟรช"><RefreshCw size={18}/></button></header>
+    <header><div><small>MARKET POS • {employee.display_name}</small><h1>{tab}</h1></div><div className="headerActions"><button className="avatar" onClick={load} aria-label="รีเฟรช"><RefreshCw size={18}/></button><button className="avatar secondary" onClick={logout} aria-label="ออกจากระบบ"><LogOut size={18}/></button></div></header>
     {message && <p className={message.startsWith('✓')?'success':'notice'}>{message}</p>}
 
     {tab === 'หน้าหลัก' && <section>
       <div className="hero"><span>ยอดขายวันนี้</span><strong>฿{money(dash.todayRevenue)}</strong><small>{dash.todayBills} บิล</small></div>
       <div className="stats"><article><b>{dash.products}</b><span>สินค้า</span></article><article><b>{dash.lowStock}</b><span>ใกล้หมด</span></article></div>
-      <button className="memberShortcut" onClick={() => setTab('สมาชิก')}><UserRound/><span><b>สมาชิกและคะแนนสะสม</b><small>ค้นหา ดูยอดซื้อ และประวัติคะแนน</small></span></button>
+      {can('manage_customers')&&<button className="memberShortcut" onClick={() => setTab('สมาชิก')}><UserRound/><span><b>สมาชิกและคะแนนสะสม</b><small>ค้นหา ดูยอดซื้อ และประวัติคะแนน</small></span></button>}
     </section>}
 
-    {tab === 'ขาย' && <section>
+    {tab === 'ขาย' && can('sell') && <section>
       <div className="search"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา / SKU / Barcode / QR"/></div>
       {loading ? <p>กำลังโหลด...</p> : <div className="grid">{filtered.map((product) => <button className="product" key={product.id} onClick={() => add(product)}><span className="emoji">{emoji(product.category)}</span><b>{product.name}</b><small>เหลือ {product.stock_qty} {product.unit}</small><strong>฿{money(product.price)}</strong></button>)}</div>}
       {cart.length > 0 && <div className="cart">
@@ -191,15 +215,15 @@ export default function Page() {
       </div>}
     </section>}
 
-    {tab === 'สมาชิก' && <section>
+    {tab === 'สมาชิก' && (can('manage_customers')||can('sell')) && <section>
       <div className="manageHead"><b>สมาชิกทั้งหมด</b><button className="primary" onClick={() => setShowMemberForm(true)}><UserPlus/> เพิ่มสมาชิก</button></div>
       <div className="search"><Phone/><input inputMode="tel" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="ค้นหาด้วยเบอร์โทร"/><button className="searchButton" onClick={() => loadCustomers(memberQuery)}><Search/></button></div>
       <div className="memberList">{customers.map((customer) => <button className="customerCard" key={customer.id} onClick={() => openCustomer(customer)}><span><b>{customer.name}</b><small>{customer.phone}</small><small>ยอดซื้อ ฿{money(customer.total_spent)}</small></span><strong><Award/> {customer.points_balance}</strong></button>)}</div>
     </section>}
 
-    {tab === 'สินค้า' && <section><div className="manageHead"><b>จัดการสินค้า</b><button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button></div>{filtered.map((product) => <div className="manageRow" key={product.id}><div className="prodInfo"><span>{emoji(product.category)}</span><div><b>{product.name}</b><small>{product.sku||'-'} • ฿{money(product.price)} • {product.stock_qty} {product.unit}</small>{product.qr_code && <small>QR: {product.qr_code}</small>}</div></div><div className="actions"><button onClick={() => setStockProduct(product)}><Boxes/></button><button onClick={() => openEdit(product)}><Pencil/></button><button onClick={() => del(product)}><Trash2/></button></div></div>)}</section>}
-    {tab === 'รายงาน' && <section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{money(dash.todayRevenue)}</strong><small>{dash.todayBills} บิล</small></div></section>}
-    {tab === 'ตั้งค่า' && <section><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={(event) => setPromptpay(event.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={() => {localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>สมาชิกได้รับ 1 คะแนนทุกยอดชำระ 10 บาท และใช้ 1 คะแนนแทนเงินสดได้ 1 บาท</p></section>}
+    {tab === 'สินค้า' && <section><div className="manageHead"><b>{can('manage_products')?'จัดการสินค้า':'รายการสินค้า'}</b>{can('manage_products')&&<button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button>}</div>{filtered.map((product) => <div className="manageRow" key={product.id}><div className="prodInfo"><span>{emoji(product.category)}</span><div><b>{product.name}</b><small>{product.sku||'-'} • ฿{money(product.price)} • {product.stock_qty} {product.unit}</small>{product.qr_code && <small>QR: {product.qr_code}</small>}</div></div>{can('manage_products')&&<div className="actions"><button onClick={() => setStockProduct(product)}><Boxes/></button><button onClick={() => openEdit(product)}><Pencil/></button><button onClick={() => del(product)}><Trash2/></button></div>}</div>)}</section>}
+    {tab === 'รายงาน' && can('view_reports') && <ReportPanel/>}
+    {tab === 'ตั้งค่า' && <section><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={(event) => setPromptpay(event.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={() => {localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>สมาชิกได้รับ 1 คะแนนทุกยอดชำระ 10 บาท และใช้ 1 คะแนนแทนเงินสดได้ 1 บาท</p>{employee.role==='admin'&&<EmployeePanel/>}</section>}
 
     {qr && <div className="overlay"><div className="modal payModal"><div className="modalHead"><b>สแกนเพื่อชำระเงิน</b><button onClick={() => setQr('')}><X/></button></div><div className="qrWrap"><Image src={qr} alt="PromptPay QR" width={340} height={340} unoptimized/><span>ยอดชำระ</span><strong>฿{money(payable)}</strong><small>PromptPay • กรุณาตรวจสอบยอดเงินเข้าก่อนยืนยัน</small></div><button className="save" disabled={paying} onClick={() => checkout('promptpay')}>ได้รับเงินแล้ว • ยืนยันการขาย</button></div></div>}
     {showForm && <div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={() => setShowForm(false)}><X/></button></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([key,label]) => <label key={key}><span>{label}</span><input value={form[key]??''} onChange={(event) => setForm({...form,[key]:event.target.value})}/></label>)}{!editing && <label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={(event) => setForm({...form,stock_qty:event.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}
@@ -207,6 +231,6 @@ export default function Page() {
     {showMemberForm && <div className="overlay"><div className="modal smallModal"><div className="modalHead"><b>เพิ่มสมาชิก</b><button onClick={() => setShowMemberForm(false)}><X/></button></div><label><span>ชื่อสมาชิก</span><input className="bigInput" value={memberForm.name} onChange={(event) => setMemberForm({...memberForm,name:event.target.value})}/></label><label><span>เบอร์โทร</span><input className="bigInput" inputMode="tel" value={memberForm.phone} onChange={(event) => setMemberForm({...memberForm,phone:event.target.value})}/></label><button className="save" onClick={createCustomer}>บันทึกสมาชิก</button></div></div>}
     {customerDetail && <div className="overlay"><div className="modal"><div className="modalHead"><b>{customerDetail.customer.name}</b><button onClick={() => setCustomerDetail(null)}><X/></button></div><div className="memberStats"><article><Award/><b>{customerDetail.customer.points_balance}</b><small>คะแนนคงเหลือ</small></article><article><Banknote/><b>฿{money(customerDetail.customer.total_spent)}</b><small>ยอดซื้อสะสม</small></article></div><h2><History/> ประวัติคะแนน</h2>{customerDetail.transactions.length ? customerDetail.transactions.map((transaction) => <div className="historyRow" key={transaction.id}><span><b>{transaction.description || 'รายการคะแนน'}</b><small>{thaiDate(transaction.created_at)} • คงเหลือ {transaction.balance_after}</small></span><strong className={transaction.points > 0 ? 'pointPlus' : 'pointMinus'}>{transaction.points > 0 ? '+' : ''}{transaction.points}</strong></div>) : <p className="empty">ยังไม่มีประวัติคะแนน</p>}</div></div>}
 
-    <nav>{[['หน้าหลัก',Home],['สมาชิก',UserRound],['สินค้า',Package],['ขาย',ShoppingCart],['รายงาน',BarChart3],['ตั้งค่า',Settings]].map(([name,Icon]:any) => <button className={tab===name?'active':''} onClick={() => setTab(name)} key={name}><Icon/><span>{name}</span></button>)}</nav>
+    <nav>{[['หน้าหลัก',Home,true],['สมาชิก',UserRound,can('manage_customers')||can('sell')],['สินค้า',Package,true],['ขาย',ShoppingCart,can('sell')],['รายงาน',BarChart3,can('view_reports')],['ตั้งค่า',Settings,true]].filter((item)=>item[2]).map(([name,Icon]:any) => <button className={`${tab===name?'active ':''}${name==='ขาย'?'saleNav':''}`} onClick={() => setTab(name)} key={name}><Icon/><span>{name}</span></button>)}</nav>
   </main>;
 }

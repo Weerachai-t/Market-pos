@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
+import { getCurrentEmployee, hasPermission } from '../../../../lib/auth';
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const employee=await getCurrentEmployee();
+  if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401});
+  if(!hasPermission(employee,'manage_customers')&&!hasPermission(employee,'sell'))return NextResponse.json({error:'ไม่มีสิทธิ์ดูข้อมูลสมาชิก'},{status:403});
   try {
     const { id } = await context.params;
     const customerId = Number(id);

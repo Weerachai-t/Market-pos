@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
 
 const normalizePhone = (value: unknown) => String(value || '').replace(/\D/g, '');
 
 export async function GET(request: Request) {
+  const employee=await getCurrentEmployee();
+  if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401});
+  if(!hasPermission(employee,'manage_customers')&&!hasPermission(employee,'sell'))return NextResponse.json({error:'ไม่มีสิทธิ์ดูข้อมูลสมาชิก'},{status:403});
   try {
     const url = new URL(request.url);
     const phone = normalizePhone(url.searchParams.get('phone'));
@@ -19,6 +23,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const employee=await getCurrentEmployee();
+  if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401});
+  if(!hasPermission(employee,'manage_customers'))return NextResponse.json({error:'ไม่มีสิทธิ์จัดการสมาชิก'},{status:403});
   try {
     const body = await request.json();
     const name = String(body.name || '').trim();

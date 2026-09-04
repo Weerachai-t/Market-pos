@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
 
 type Item = { productId?: number; product_id?: number; quantity: number };
 
 export async function POST(request: Request) {
+  const employee=await getCurrentEmployee();
+  if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401});
+  if(!hasPermission(employee,'sell'))return NextResponse.json({error:'ไม่มีสิทธิ์ขายสินค้า'},{status:403});
   try {
     const body = await request.json();
     const items: Item[] = Array.isArray(body.items) ? body.items : [];
@@ -27,13 +31,14 @@ export async function POST(request: Request) {
     const sql = getDb();
     const cashReceived = body.cashReceived == null ? null : Number(body.cashReceived);
     const rows = await sql`
-      SELECT * FROM process_pos_sale(
+      SELECT * FROM process_pos_sale_by_cashier(
         ${JSON.stringify(dbItems)}::jsonb,
         ${paymentMethod},
         ${cashReceived},
         ${customerId},
         ${redeemPoints},
-        ${clientReference}
+        ${clientReference},
+        ${employee.id}
       )
     `;
     const sale = rows[0];

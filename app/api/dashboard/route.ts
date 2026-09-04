@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { getCurrentEmployee } from '../../../lib/auth';
 
 export async function GET() {
+  const employee=await getCurrentEmployee();
+  if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401});
   try {
     const sql = getDb();
     const [sales] = await sql`SELECT COALESCE(SUM(total),0)::float AS revenue, COUNT(*)::int AS bills FROM sales WHERE status='completed' AND sold_at >= date_trunc('day', now())`;

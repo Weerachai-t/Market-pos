@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
+import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
 
 export async function POST(request:Request){
+ const employee=await getCurrentEmployee(); if(!employee)return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'},{status:401}); if(!hasPermission(employee,'manage_products'))return NextResponse.json({error:'ไม่มีสิทธิ์จัดการสินค้า'},{status:403});
  try{
   const b=await request.json(); const productId=Number(b.productId); const quantity=Number(b.quantity); const type=b.type==='receive'?'receive':'adjust';
   if(!productId||!Number.isFinite(quantity)||quantity===0)return NextResponse.json({error:'ข้อมูลสต๊อกไม่ถูกต้อง'},{status:400});
