@@ -1,31 +1,28 @@
 'use client';
-import { useMemo, useState } from 'react';
-import { Home, Package, ShoppingCart, BarChart3, Settings, Search, Plus, Minus, Banknote, QrCode, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Home, Package, ShoppingCart, BarChart3, Settings, Search, Plus, Minus, Banknote, QrCode, Trash2, RefreshCw } from 'lucide-react';
 
-type Product={id:number;name:string;price:number;stock:number;emoji:string;category:string};
-const products:Product[]=[
-{id:1,name:'น้ำดื่ม',price:10,stock:48,emoji:'💧',category:'เครื่องดื่ม'},
-{id:2,name:'กาแฟเย็น',price:35,stock:24,emoji:'🥤',category:'เครื่องดื่ม'},
-{id:3,name:'ชาไทย',price:30,stock:18,emoji:'🧋',category:'เครื่องดื่ม'},
-{id:4,name:'ขนมปัง',price:25,stock:16,emoji:'🍞',category:'อาหาร'},
-{id:5,name:'ลูกชิ้น',price:40,stock:30,emoji:'🍢',category:'อาหาร'},
-{id:6,name:'เสื้อยืด',price:199,stock:8,emoji:'👕',category:'สินค้า'},
-];
-
+type Product={id:number;sku?:string;name:string;price:number|string;stock_qty:number|string;unit:string;category?:string};
 type Cart=Product&{qty:number};
+type Dashboard={todayRevenue:number;todayBills:number;products:number;lowStock:number};
+const emoji=(c?:string)=>c==='เครื่องดื่ม'?'🥤':c==='อาหาร'?'🍱':c==='เสื้อผ้า'?'👕':'📦';
+
 export default function Page(){
- const [tab,setTab]=useState('ขาย'); const [cart,setCart]=useState<Cart[]>([]); const [query,setQuery]=useState(''); const [paid,setPaid]=useState(false);
- const total=cart.reduce((s,i)=>s+i.price*i.qty,0); const count=cart.reduce((s,i)=>s+i.qty,0);
- const filtered=useMemo(()=>products.filter(p=>p.name.includes(query)),[query]);
- const add=(p:Product)=>{setPaid(false);setCart(c=>{const x=c.find(i=>i.id===p.id);return x?c.map(i=>i.id===p.id?{...i,qty:i.qty+1}:i):[...c,{...p,qty:1}]})};
- const qty=(id:number,d:number)=>setCart(c=>c.map(i=>i.id===id?{...i,qty:i.qty+d}:i).filter(i=>i.qty>0));
- const checkout=(method:string)=>{if(!total)return; setPaid(true); setTimeout(()=>{alert(`รับชำระ ${method} ฿${total.toLocaleString()} สำเร็จ`);setCart([]);setPaid(false)},200)};
+ const [tab,setTab]=useState('ขาย'); const [products,setProducts]=useState<Product[]>([]); const [cart,setCart]=useState<Cart[]>([]); const [query,setQuery]=useState(''); const [loading,setLoading]=useState(true); const [paying,setPaying]=useState(false); const [message,setMessage]=useState(''); const [dash,setDash]=useState<Dashboard>({todayRevenue:0,todayBills:0,products:0,lowStock:0});
+ const load=async()=>{setLoading(true);setMessage('');try{const [p,d]=await Promise.all([fetch('/api/products',{cache:'no-store'}),fetch('/api/dashboard',{cache:'no-store'})]);if(!p.ok||!d.ok)throw new Error();const pj=await p.json();const dj=await d.json();setProducts(pj.products||[]);setDash(dj);}catch{setMessage('เชื่อมต่อฐานข้อมูลไม่สำเร็จ กรุณาตรวจ DATABASE_URL');}finally{setLoading(false)}};
+ useEffect(()=>{load()},[]);
+ const total=cart.reduce((s,i)=>s+Number(i.price)*i.qty,0); const count=cart.reduce((s,i)=>s+i.qty,0);
+ const filtered=useMemo(()=>products.filter(p=>(p.name+' '+(p.sku||'')).toLowerCase().includes(query.toLowerCase())),[products,query]);
+ const add=(p:Product)=>{if(Number(p.stock_qty)<=0)return;setMessage('');setCart(c=>{const x=c.find(i=>i.id===p.id);if(x&&x.qty>=Number(p.stock_qty))return c;return x?c.map(i=>i.id===p.id?{...i,qty:i.qty+1}:i):[...c,{...p,qty:1}]})};
+ const qty=(id:number,d:number)=>setCart(c=>c.map(i=>i.id===id?{...i,qty:Math.min(i.qty+d,Number(i.stock_qty))}:i).filter(i=>i.qty>0));
+ const checkout=async(method:'cash'|'promptpay')=>{if(!cart.length||paying)return;setPaying(true);setMessage('');try{const r=await fetch('/api/sales',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentMethod:method,items:cart.map(i=>({productId:i.id,quantity:i.qty}))})});const data=await r.json();if(!r.ok)throw new Error(data.error||'บันทึกไม่สำเร็จ');setMessage(`✓ บันทึกบิล ${data.receiptNo} สำเร็จ • ฿${Number(data.total).toLocaleString()}`);setCart([]);await load();}catch(e){setMessage(e instanceof Error?e.message:'บันทึกการขายไม่สำเร็จ');}finally{setPaying(false)}};
  return <main className="shell">
-  <header><div><small>MARKET POS</small><h1>{tab==='ขาย'?'ขายสินค้า':tab}</h1></div><div className="avatar">MP</div></header>
-  {tab==='หน้าหลัก'&&<section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿3,840</strong><small>28 บิล • กำไรประมาณ ฿1,420</small></div><div className="stats"><article><b>28</b><span>บิลวันนี้</span></article><article><b>67</b><span>สินค้าที่ขาย</span></article></div><h2>ขายดีวันนี้</h2>{products.slice(0,3).map((p,i)=><div className="row" key={p.id}><span>{i+1}. {p.emoji} {p.name}</span><b>{12-i*3} ชิ้น</b></div>)}</section>}
-  {tab==='ขาย'&&<section><div className="search"><Search size={19}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ค้นหาสินค้า / Barcode"/></div><div className="grid">{filtered.map(p=><button className="product" key={p.id} onClick={()=>add(p)}><span className="emoji">{p.emoji}</span><b>{p.name}</b><small>คงเหลือ {p.stock}</small><strong>฿{p.price}</strong></button>)}</div>{cart.length>0&&<div className="cart"><div className="cartTitle"><b><ShoppingCart size={18}/> ตะกร้า ({count})</b><button onClick={()=>setCart([])}><Trash2 size={17}/></button></div>{cart.map(i=><div className="cartRow" key={i.id}><span>{i.name}<small>฿{i.price}</small></span><div><button onClick={()=>qty(i.id,-1)}><Minus/></button><b>{i.qty}</b><button onClick={()=>qty(i.id,1)}><Plus/></button></div></div>)}<div className="total"><span>ยอดรวม</span><strong>฿{total.toLocaleString()}</strong></div><div className="pay"><button onClick={()=>checkout('เงินสด')}><Banknote/> เงินสด</button><button onClick={()=>checkout('PromptPay')}><QrCode/> QR PromptPay</button></div>{paid&&<p className="success">กำลังบันทึกการขาย...</p>}</div>}</section>}
-  {tab==='สินค้า'&&<section><div className="hero mini"><span>สินค้าทั้งหมด</span><strong>{products.length} รายการ</strong><small>สินค้าใกล้หมด 1 รายการ</small></div>{products.map(p=><div className="row" key={p.id}><span>{p.emoji} {p.name}<small>{p.category}</small></span><b>฿{p.price} • {p.stock}</b></div>)}</section>}
-  {tab==='รายงาน'&&<section><div className="hero"><span>ยอดขายเดือนนี้</span><strong>฿42,650</strong><small>312 บิล</small></div><h2>สรุป</h2><div className="stats"><article><b>฿13,940</b><span>กำไร</span></article><article><b>846</b><span>ชิ้นที่ขาย</span></article></div></section>}
+  <header><div><small>MARKET POS • ONLINE</small><h1>{tab==='ขาย'?'ขายสินค้า':tab}</h1></div><button className="avatar" onClick={load} title="รีเฟรช"><RefreshCw size={18}/></button></header>
+  {message&&<p className={message.startsWith('✓')?'success':''}>{message}</p>}
+  {tab==='หน้าหลัก'&&<section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{Number(dash.todayRevenue||0).toLocaleString()}</strong><small>{dash.todayBills||0} บิล • ข้อมูลจาก Neon</small></div><div className="stats"><article><b>{dash.products||0}</b><span>สินค้าทั้งหมด</span></article><article><b>{dash.lowStock||0}</b><span>สินค้าใกล้หมด</span></article></div><h2>สถานะระบบ</h2><div className="row"><span>ฐานข้อมูล</span><b>{loading?'กำลังโหลด...':'เชื่อมต่อแล้ว'}</b></div></section>}
+  {tab==='ขาย'&&<section><div className="search"><Search size={19}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ค้นหาสินค้า / SKU / Barcode"/></div>{loading?<p>กำลังโหลดสินค้า...</p>:<div className="grid">{filtered.map(p=><button className="product" key={p.id} onClick={()=>add(p)} disabled={Number(p.stock_qty)<=0}><span className="emoji">{emoji(p.category)}</span><b>{p.name}</b><small>คงเหลือ {Number(p.stock_qty)} {p.unit}</small><strong>฿{Number(p.price).toLocaleString()}</strong></button>)}</div>}{cart.length>0&&<div className="cart"><div className="cartTitle"><b><ShoppingCart size={18}/> ตะกร้า ({count})</b><button onClick={()=>setCart([])}><Trash2 size={17}/></button></div>{cart.map(i=><div className="cartRow" key={i.id}><span>{i.name}<small>฿{Number(i.price).toLocaleString()}</small></span><div><button onClick={()=>qty(i.id,-1)}><Minus/></button><b>{i.qty}</b><button onClick={()=>qty(i.id,1)}><Plus/></button></div></div>)}<div className="total"><span>ยอดรวม</span><strong>฿{total.toLocaleString()}</strong></div><div className="pay"><button disabled={paying} onClick={()=>checkout('cash')}><Banknote/> เงินสด</button><button disabled={paying} onClick={()=>checkout('promptpay')}><QrCode/> QR PromptPay</button></div>{paying&&<p className="success">กำลังบันทึกการขายและตัดสต๊อก...</p>}</div>}</section>}
+  {tab==='สินค้า'&&<section><div className="hero mini"><span>สินค้าจากฐานข้อมูล</span><strong>{products.length} รายการ</strong><small>ใกล้หมด {dash.lowStock||0} รายการ</small></div>{products.map(p=><div className="row" key={p.id}><span>{emoji(p.category)} {p.name}<small>{p.category||'ทั่วไป'} • {p.sku||'-'}</small></span><b>฿{Number(p.price).toLocaleString()} • {Number(p.stock_qty)} {p.unit}</b></div>)}</section>}
+  {tab==='รายงาน'&&<section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{Number(dash.todayRevenue||0).toLocaleString()}</strong><small>{dash.todayBills||0} บิล</small></div><h2>สต๊อก</h2><div className="stats"><article><b>{dash.products||0}</b><span>รายการสินค้า</span></article><article><b>{dash.lowStock||0}</b><span>ใกล้หมด</span></article></div></section>}
   {tab==='ตั้งค่า'&&<section><h2>ตั้งค่าร้านค้า</h2>{['ข้อมูลร้านค้า','PromptPay / QR รับเงิน','เครื่องพิมพ์ใบเสร็จ','พนักงานและสิทธิ์','สำรองข้อมูล'].map(x=><div className="row" key={x}><span>{x}</span><b>›</b></div>)}</section>}
   <nav>{[['หน้าหลัก',Home],['สินค้า',Package],['ขาย',ShoppingCart],['รายงาน',BarChart3],['ตั้งค่า',Settings]].map(([n,I]:any)=><button className={tab===n?'active':''} onClick={()=>setTab(n)} key={n}><I/><span>{n}</span></button>)}</nav>
  </main>
