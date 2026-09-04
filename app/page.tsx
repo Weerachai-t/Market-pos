@@ -1,12 +1,212 @@
 'use client';
-import { useEffect,useMemo,useState } from 'react';
-import { Home,Package,ShoppingCart,BarChart3,Settings,Search,Plus,Minus,Banknote,QrCode,Trash2,RefreshCw,Pencil,Boxes,X } from 'lucide-react';
-type Product={id:number;sku?:string;barcode?:string;qr_code?:string;name:string;price:number|string;cost?:number|string;stock_qty:number|string;low_stock_qty?:number|string;unit:string;category?:string};type Cart=Product&{qty:number};type Dashboard={todayRevenue:number;todayBills:number;products:number;lowStock:number};
-const blank={sku:'',barcode:'',qr_code:'',name:'',category:'',cost:'0',price:'0',stock_qty:'0',low_stock_qty:'5',unit:'ชิ้น'};const emoji=(c?:string)=>c==='เครื่องดื่ม'?'🥤':c==='อาหาร'?'🍱':c==='เสื้อผ้า'?'👕':'📦';
-export default function Page(){const[tab,setTab]=useState('ขาย'),[products,setProducts]=useState<Product[]>([]),[cart,setCart]=useState<Cart[]>([]),[query,setQuery]=useState(''),[loading,setLoading]=useState(true),[paying,setPaying]=useState(false),[message,setMessage]=useState(''),[dash,setDash]=useState<Dashboard>({todayRevenue:0,todayBills:0,products:0,lowStock:0}),[form,setForm]=useState<any>(blank),[editing,setEditing]=useState<number|null>(null),[showForm,setShowForm]=useState(false),[stockProduct,setStockProduct]=useState<Product|null>(null),[stockQty,setStockQty]=useState(''),[promptpay,setPromptpay]=useState(''),[qr,setQr]=useState('');
-useEffect(()=>{setPromptpay(localStorage.getItem('promptpay')||'');load()},[]);const load=async()=>{setLoading(true);try{const[p,d]=await Promise.all([fetch('/api/products',{cache:'no-store'}),fetch('/api/dashboard',{cache:'no-store'})]);setProducts((await p.json()).products||[]);setDash(await d.json())}finally{setLoading(false)}};const total=cart.reduce((s,i)=>s+Number(i.price)*i.qty,0),count=cart.reduce((s,i)=>s+i.qty,0),filtered=useMemo(()=>products.filter(p=>(p.name+' '+(p.sku||'')+' '+(p.barcode||'')+' '+(p.qr_code||'')).toLowerCase().includes(query.toLowerCase())),[products,query]);
-const add=(p:Product)=>{if(Number(p.stock_qty)<=0)return;setCart(c=>{const x=c.find(i=>i.id===p.id);if(x&&x.qty>=Number(p.stock_qty))return c;return x?c.map(i=>i.id===p.id?{...i,qty:i.qty+1}:i):[...c,{...p,qty:1}]})};const qty=(id:number,d:number)=>setCart(c=>c.map(i=>i.id===id?{...i,qty:Math.min(i.qty+d,Number(i.stock_qty))}:i).filter(i=>i.qty>0));const checkout=async(method:'cash'|'promptpay')=>{setPaying(true);try{const r=await fetch('/api/sales',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paymentMethod:method,items:cart.map(i=>({productId:i.id,quantity:i.qty}))})}),x=await r.json();if(!r.ok)throw Error(x.error);setQr('');setCart([]);setMessage(`✓ บิล ${x.receiptNo} สำเร็จ ฿${Number(x.total).toLocaleString()}`);await load()}catch(e:any){setMessage(e.message)}finally{setPaying(false)}};const showPromptPay=async()=>{if(!promptpay)return setMessage('กรุณาตั้งค่าหมายเลข PromptPay ก่อน');const r=await fetch('/api/promptpay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:promptpay,amount:total})}),x=await r.json();if(!r.ok)return setMessage(x.error);setQr(x.qr)};
-const openNew=()=>{setEditing(null);setForm(blank);setShowForm(true)},openEdit=(p:Product)=>{setEditing(p.id);setForm({...p});setShowForm(true)};const saveProduct=async()=>{const r=await fetch(editing?`/api/products/${editing}`:'/api/products',{method:editing?'PATCH':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)}),x=await r.json();if(!r.ok)return setMessage(x.error);setShowForm(false);await load()};const del=async(p:Product)=>{if(confirm(`ลบ ${p.name} ?`)){await fetch(`/api/products/${p.id}`,{method:'DELETE'});await load()}};const adjustStock=async()=>{if(!stockProduct||!Number(stockQty))return;const r=await fetch('/api/stock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({productId:stockProduct.id,quantity:Number(stockQty),type:Number(stockQty)>0?'receive':'adjust'})}),x=await r.json();if(!r.ok)return setMessage(x.error);setStockProduct(null);setStockQty('');await load()};
-return <main className="shell"><header><div><small>MARKET POS • ONLINE</small><h1>{tab}</h1></div><button className="avatar" onClick={load}><RefreshCw size={18}/></button></header>{message&&<p className={message.startsWith('✓')?'success':'notice'}>{message}</p>}{tab==='หน้าหลัก'&&<section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{Number(dash.todayRevenue||0).toLocaleString()}</strong><small>{dash.todayBills} บิล</small></div><div className="stats"><article><b>{dash.products}</b><span>สินค้า</span></article><article><b>{dash.lowStock}</b><span>ใกล้หมด</span></article></div></section>}{tab==='ขาย'&&<section><div className="search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ค้นหา / SKU / Barcode / QR"/></div>{loading?<p>กำลังโหลด...</p>:<div className="grid">{filtered.map(p=><button className="product" key={p.id} onClick={()=>add(p)}><span className="emoji">{emoji(p.category)}</span><b>{p.name}</b><small>เหลือ {p.stock_qty} {p.unit}</small><strong>฿{Number(p.price).toLocaleString()}</strong></button>)}</div>}{cart.length>0&&<div className="cart"><div className="cartTitle"><b><ShoppingCart/> ตะกร้า ({count})</b><button onClick={()=>setCart([])}><Trash2/></button></div>{cart.map(i=><div className="cartRow" key={i.id}><span>{i.name}<small>฿{Number(i.price).toLocaleString()}</small></span><div><button onClick={()=>qty(i.id,-1)}><Minus/></button><b>{i.qty}</b><button onClick={()=>qty(i.id,1)}><Plus/></button></div></div>)}<div className="total"><span>ยอดรวม</span><strong>฿{total.toLocaleString()}</strong></div><div className="pay"><button onClick={()=>checkout('cash')}><Banknote/> เงินสด</button><button onClick={showPromptPay}><QrCode/> QR PromptPay</button></div></div>}</section>}{tab==='สินค้า'&&<section><div className="manageHead"><b>จัดการสินค้า</b><button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button></div>{filtered.map(p=><div className="manageRow" key={p.id}><div className="prodInfo"><span>{emoji(p.category)}</span><div><b>{p.name}</b><small>{p.sku||'-'} • ฿{Number(p.price)} • {p.stock_qty} {p.unit}</small>{p.qr_code&&<small>QR: {p.qr_code}</small>}</div></div><div className="actions"><button onClick={()=>setStockProduct(p)}><Boxes/></button><button onClick={()=>openEdit(p)}><Pencil/></button><button onClick={()=>del(p)}><Trash2/></button></div></div>)}</section>}{tab==='รายงาน'&&<section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{Number(dash.todayRevenue||0).toLocaleString()}</strong><small>{dash.todayBills} บิล</small></div></section>}{tab==='ตั้งค่า'&&<section><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={e=>setPromptpay(e.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={()=>{localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>เมื่อเลือก QR PromptPay ในหน้าขาย ระบบจะสร้าง QR ตามยอดชำระของบิลให้ลูกค้าสแกน</p></section>}
-{qr&&<div className="overlay"><div className="modal payModal"><div className="modalHead"><b>สแกนเพื่อชำระเงิน</b><button onClick={()=>setQr('')}><X/></button></div><div className="qrWrap"><img src={qr} alt="PromptPay QR"/><span>ยอดชำระ</span><strong>฿{total.toLocaleString()}</strong><small>PromptPay • กรุณาตรวจสอบยอดเงินเข้าก่อนยืนยัน</small></div><button className="save" disabled={paying} onClick={()=>checkout('promptpay')}>ได้รับเงินแล้ว • ยืนยันการขาย</button></div></div>}
-{showForm&&<div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={()=>setShowForm(false)}><X/></button></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([k,l])=><label key={k}><span>{l}</span><input value={form[k]??''} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}{!editing&&<label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={e=>setForm({...form,stock_qty:e.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}{stockProduct&&<div className="overlay"><div className="modal"><div className="modalHead"><b>ปรับสต๊อก • {stockProduct.name}</b><button onClick={()=>setStockProduct(null)}><X/></button></div><input className="bigInput" type="number" value={stockQty} onChange={e=>setStockQty(e.target.value)} placeholder="+ รับเข้า / - ปรับออก"/><button className="save" onClick={adjustStock}>บันทึกสต๊อก</button></div></div>}<nav>{[['หน้าหลัก',Home],['สินค้า',Package],['ขาย',ShoppingCart],['รายงาน',BarChart3],['ตั้งค่า',Settings]].map(([n,I]:any)=><button className={tab===n?'active':''} onClick={()=>setTab(n)} key={n}><I/><span>{n}</span></button>)}</nav></main>}
+
+import Image from 'next/image';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Award, Banknote, BarChart3, Boxes, History, Home, Minus, Package,
+  Pencil, Phone, Plus, QrCode, RefreshCw, Search, Settings, ShoppingCart,
+  Trash2, UserPlus, UserRound, X,
+} from 'lucide-react';
+
+type Product = { id:number; sku?:string; barcode?:string; qr_code?:string; name:string; price:number|string; cost?:number|string; stock_qty:number|string; low_stock_qty?:number|string; unit:string; category?:string };
+type Cart = Product & { qty:number };
+type Dashboard = { todayRevenue:number; todayBills:number; products:number; lowStock:number };
+type Customer = { id:number; name:string; phone:string; points_balance:number|string; total_spent:number|string; created_at?:string };
+type PointTransaction = { id:number; sale_id?:number; transaction_type:'earn'|'redeem'|'adjust'; points:number; balance_after:number; description?:string; created_at:string };
+type CustomerDetail = { customer:Customer; transactions:PointTransaction[]; sales:Array<{id:number;receipt_no:string;sold_at:string;total:number|string;points_earned:number;points_redeemed:number}> };
+
+const blank = { sku:'', barcode:'', qr_code:'', name:'', category:'', cost:'0', price:'0', stock_qty:'0', low_stock_qty:'5', unit:'ชิ้น' };
+const emoji = (category?:string) => category === 'เครื่องดื่ม' ? '🥤' : category === 'อาหาร' ? '🍱' : category === 'เสื้อผ้า' ? '👕' : '📦';
+const money = (value:number|string) => Number(value || 0).toLocaleString('th-TH', { maximumFractionDigits:2 });
+const thaiDate = (value:string) => new Date(value).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' });
+
+export default function Page() {
+  const [tab,setTab] = useState('ขาย');
+  const [products,setProducts] = useState<Product[]>([]);
+  const [cart,setCart] = useState<Cart[]>([]);
+  const [query,setQuery] = useState('');
+  const [loading,setLoading] = useState(true);
+  const [paying,setPaying] = useState(false);
+  const [message,setMessage] = useState('');
+  const [dash,setDash] = useState<Dashboard>({ todayRevenue:0, todayBills:0, products:0, lowStock:0 });
+  const [form,setForm] = useState<Record<string, any>>(blank);
+  const [editing,setEditing] = useState<number|null>(null);
+  const [showForm,setShowForm] = useState(false);
+  const [stockProduct,setStockProduct] = useState<Product|null>(null);
+  const [stockQty,setStockQty] = useState('');
+  const [promptpay,setPromptpay] = useState('');
+  const [qr,setQr] = useState('');
+  const [customers,setCustomers] = useState<Customer[]>([]);
+  const [memberQuery,setMemberQuery] = useState('');
+  const [selectedCustomer,setSelectedCustomer] = useState<Customer|null>(null);
+  const [redeemPoints,setRedeemPoints] = useState(0);
+  const [showMemberForm,setShowMemberForm] = useState(false);
+  const [memberForm,setMemberForm] = useState({ name:'', phone:'' });
+  const [customerDetail,setCustomerDetail] = useState<CustomerDetail|null>(null);
+  const checkoutReference = useRef<string|null>(null);
+
+  useEffect(() => { setPromptpay(localStorage.getItem('promptpay') || ''); load(); }, []);
+  useEffect(() => { if (tab === 'สมาชิก') loadCustomers(); }, [tab]);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [productResponse,dashboardResponse] = await Promise.all([
+        fetch('/api/products', { cache:'no-store' }),
+        fetch('/api/dashboard', { cache:'no-store' }),
+      ]);
+      setProducts((await productResponse.json()).products || []);
+      setDash(await dashboardResponse.json());
+    } finally { setLoading(false); }
+  };
+
+  const loadCustomers = async (phone = '') => {
+    const response = await fetch(`/api/customers${phone ? `?phone=${encodeURIComponent(phone)}` : ''}`, { cache:'no-store' });
+    const data = await response.json();
+    if (response.ok) setCustomers(data.customers || []);
+  };
+
+  const openCustomer = async (customer:Customer) => {
+    const response = await fetch(`/api/customers/${customer.id}`, { cache:'no-store' });
+    const data = await response.json();
+    if (response.ok) setCustomerDetail(data);
+    else setMessage(data.error);
+  };
+
+  const createCustomer = async () => {
+    const response = await fetch('/api/customers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(memberForm) });
+    const data = await response.json();
+    if (!response.ok) return setMessage(data.error);
+    setShowMemberForm(false);
+    setMemberForm({ name:'', phone:'' });
+    setSelectedCustomer(data.customer);
+    setMemberQuery(data.customer.phone);
+    setMessage('✓ บันทึกสมาชิกแล้ว');
+    await loadCustomers();
+  };
+
+  const subtotal = cart.reduce((sum,item) => sum + Number(item.price) * item.qty, 0);
+  const maxRedeem = selectedCustomer ? Math.min(Number(selectedCustomer.points_balance), Math.floor(subtotal)) : 0;
+  const appliedRedeem = Math.min(Math.max(0, Math.floor(redeemPoints)), maxRedeem);
+  const payable = Math.max(0, subtotal - appliedRedeem);
+  const expectedPoints = selectedCustomer ? Math.floor(payable / 10) : 0;
+  const count = cart.reduce((sum,item) => sum + item.qty, 0);
+  const filtered = useMemo(() => products.filter((product) => `${product.name} ${product.sku || ''} ${product.barcode || ''} ${product.qr_code || ''}`.toLowerCase().includes(query.toLowerCase())), [products,query]);
+
+  const cartChanged = () => { checkoutReference.current = null; setQr(''); };
+  const add = (product:Product) => {
+    if (Number(product.stock_qty) <= 0) return;
+    cartChanged();
+    setCart((current) => {
+      const existing = current.find((item) => item.id === product.id);
+      if (existing && existing.qty >= Number(product.stock_qty)) return current;
+      return existing ? current.map((item) => item.id === product.id ? {...item,qty:item.qty+1} : item) : [...current,{...product,qty:1}];
+    });
+  };
+  const qty = (id:number,delta:number) => {
+    cartChanged();
+    setCart((current) => current.map((item) => item.id === id ? {...item,qty:Math.min(item.qty+delta,Number(item.stock_qty))} : item).filter((item) => item.qty > 0));
+  };
+  const clearCart = () => { cartChanged(); setCart([]); setRedeemPoints(0); };
+
+  const checkout = async (method:'cash'|'promptpay') => {
+    if (paying) return;
+    setPaying(true);
+    checkoutReference.current ||= crypto.randomUUID();
+    try {
+      const response = await fetch('/api/sales', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          paymentMethod:method,
+          items:cart.map((item) => ({ productId:item.id, quantity:item.qty })),
+          customerId:selectedCustomer?.id ?? null,
+          redeemPoints:appliedRedeem,
+          cashReceived:method === 'cash' ? payable : null,
+          clientReference:checkoutReference.current,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setQr(''); setCart([]); setRedeemPoints(0); setSelectedCustomer(null); setMemberQuery('');
+      checkoutReference.current = null;
+      const pointText = data.pointsEarned ? ` • +${data.pointsEarned} คะแนน` : '';
+      setMessage(`✓ บิล ${data.receiptNo} สำเร็จ ฿${money(data.total)}${pointText}`);
+      await Promise.all([load(),loadCustomers()]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'บันทึกการขายไม่สำเร็จ');
+    } finally { setPaying(false); }
+  };
+
+  const showPromptPay = async () => {
+    if (!promptpay) return setMessage('กรุณาตั้งค่าหมายเลข PromptPay ก่อน');
+    const response = await fetch('/api/promptpay', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target:promptpay,amount:payable}) });
+    const data = await response.json();
+    if (!response.ok) return setMessage(data.error);
+    setQr(data.qr);
+  };
+
+  const searchMembers = async () => { await loadCustomers(memberQuery); };
+  const selectMember = (customer:Customer) => { setSelectedCustomer(customer); setMemberQuery(customer.phone); setRedeemPoints(0); };
+  const openNew = () => { setEditing(null); setForm(blank); setShowForm(true); };
+  const openEdit = (product:Product) => { setEditing(product.id); setForm({...product}); setShowForm(true); };
+  const saveProduct = async () => {
+    const response = await fetch(editing ? `/api/products/${editing}` : '/api/products', { method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(form) });
+    const data = await response.json();
+    if (!response.ok) return setMessage(data.error);
+    setShowForm(false); await load();
+  };
+  const del = async (product:Product) => { if (confirm(`ลบ ${product.name} ?`)) { await fetch(`/api/products/${product.id}`, {method:'DELETE'}); await load(); } };
+  const adjustStock = async () => {
+    if (!stockProduct || !Number(stockQty)) return;
+    const response = await fetch('/api/stock', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({productId:stockProduct.id,quantity:Number(stockQty),type:Number(stockQty)>0?'receive':'adjust'}) });
+    const data = await response.json();
+    if (!response.ok) return setMessage(data.error);
+    setStockProduct(null); setStockQty(''); await load();
+  };
+
+  return <main className="shell">
+    <header><div><small>MARKET POS • ONLINE</small><h1>{tab}</h1></div><button className="avatar" onClick={load} aria-label="รีเฟรช"><RefreshCw size={18}/></button></header>
+    {message && <p className={message.startsWith('✓')?'success':'notice'}>{message}</p>}
+
+    {tab === 'หน้าหลัก' && <section>
+      <div className="hero"><span>ยอดขายวันนี้</span><strong>฿{money(dash.todayRevenue)}</strong><small>{dash.todayBills} บิล</small></div>
+      <div className="stats"><article><b>{dash.products}</b><span>สินค้า</span></article><article><b>{dash.lowStock}</b><span>ใกล้หมด</span></article></div>
+      <button className="memberShortcut" onClick={() => setTab('สมาชิก')}><UserRound/><span><b>สมาชิกและคะแนนสะสม</b><small>ค้นหา ดูยอดซื้อ และประวัติคะแนน</small></span></button>
+    </section>}
+
+    {tab === 'ขาย' && <section>
+      <div className="search"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา / SKU / Barcode / QR"/></div>
+      {loading ? <p>กำลังโหลด...</p> : <div className="grid">{filtered.map((product) => <button className="product" key={product.id} onClick={() => add(product)}><span className="emoji">{emoji(product.category)}</span><b>{product.name}</b><small>เหลือ {product.stock_qty} {product.unit}</small><strong>฿{money(product.price)}</strong></button>)}</div>}
+      {cart.length > 0 && <div className="cart">
+        <div className="cartTitle"><b><ShoppingCart/> ตะกร้า ({count})</b><button onClick={clearCart} aria-label="ล้างตะกร้า"><Trash2/></button></div>
+        {cart.map((item) => <div className="cartRow" key={item.id}><span>{item.name}<small>฿{money(item.price)}</small></span><div><button onClick={() => qty(item.id,-1)}><Minus/></button><b>{item.qty}</b><button onClick={() => qty(item.id,1)}><Plus/></button></div></div>)}
+        <div className="memberBox">
+          <b><UserRound/> สมาชิก</b>
+          {selectedCustomer ? <div className="selectedMember"><span><strong>{selectedCustomer.name}</strong><small>{selectedCustomer.phone} • {selectedCustomer.points_balance} คะแนน</small></span><button onClick={() => {setSelectedCustomer(null);setMemberQuery('');setRedeemPoints(0)}}><X/></button></div> : <><div className="memberSearch"><input inputMode="tel" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="ค้นหาด้วยเบอร์โทร"/><button onClick={searchMembers}><Search/></button></div>{memberQuery && customers.slice(0,3).map((customer) => <button className="memberResult" key={customer.id} onClick={() => selectMember(customer)}><span>{customer.name}<small>{customer.phone}</small></span><b>{customer.points_balance} แต้ม</b></button>)}</>}
+          {selectedCustomer && <label className="redeem"><span>ใช้คะแนน (1 คะแนน = 1 บาท)</span><input type="number" min="0" max={maxRedeem} value={redeemPoints} onChange={(event) => setRedeemPoints(Math.min(maxRedeem,Math.max(0,Number(event.target.value))))}/><small>ใช้ได้สูงสุด {maxRedeem} คะแนน • บิลนี้จะได้รับ {expectedPoints} คะแนน</small></label>}
+        </div>
+        <div className="summary"><span>ยอดสินค้า <b>฿{money(subtotal)}</b></span>{appliedRedeem > 0 && <span className="discount">ส่วนลดคะแนน <b>-฿{money(appliedRedeem)}</b></span>}</div>
+        <div className="total"><span>ยอดชำระ</span><strong>฿{money(payable)}</strong></div>
+        <div className="pay"><button disabled={paying} onClick={() => checkout('cash')}><Banknote/> เงินสด</button><button disabled={paying} onClick={showPromptPay}><QrCode/> QR PromptPay</button></div>
+      </div>}
+    </section>}
+
+    {tab === 'สมาชิก' && <section>
+      <div className="manageHead"><b>สมาชิกทั้งหมด</b><button className="primary" onClick={() => setShowMemberForm(true)}><UserPlus/> เพิ่มสมาชิก</button></div>
+      <div className="search"><Phone/><input inputMode="tel" value={memberQuery} onChange={(event) => setMemberQuery(event.target.value)} placeholder="ค้นหาด้วยเบอร์โทร"/><button className="searchButton" onClick={() => loadCustomers(memberQuery)}><Search/></button></div>
+      <div className="memberList">{customers.map((customer) => <button className="customerCard" key={customer.id} onClick={() => openCustomer(customer)}><span><b>{customer.name}</b><small>{customer.phone}</small><small>ยอดซื้อ ฿{money(customer.total_spent)}</small></span><strong><Award/> {customer.points_balance}</strong></button>)}</div>
+    </section>}
+
+    {tab === 'สินค้า' && <section><div className="manageHead"><b>จัดการสินค้า</b><button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button></div>{filtered.map((product) => <div className="manageRow" key={product.id}><div className="prodInfo"><span>{emoji(product.category)}</span><div><b>{product.name}</b><small>{product.sku||'-'} • ฿{money(product.price)} • {product.stock_qty} {product.unit}</small>{product.qr_code && <small>QR: {product.qr_code}</small>}</div></div><div className="actions"><button onClick={() => setStockProduct(product)}><Boxes/></button><button onClick={() => openEdit(product)}><Pencil/></button><button onClick={() => del(product)}><Trash2/></button></div></div>)}</section>}
+    {tab === 'รายงาน' && <section><div className="hero"><span>ยอดขายวันนี้</span><strong>฿{money(dash.todayRevenue)}</strong><small>{dash.todayBills} บิล</small></div></section>}
+    {tab === 'ตั้งค่า' && <section><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={(event) => setPromptpay(event.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={() => {localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>สมาชิกได้รับ 1 คะแนนทุกยอดชำระ 10 บาท และใช้ 1 คะแนนแทนเงินสดได้ 1 บาท</p></section>}
+
+    {qr && <div className="overlay"><div className="modal payModal"><div className="modalHead"><b>สแกนเพื่อชำระเงิน</b><button onClick={() => setQr('')}><X/></button></div><div className="qrWrap"><Image src={qr} alt="PromptPay QR" width={340} height={340} unoptimized/><span>ยอดชำระ</span><strong>฿{money(payable)}</strong><small>PromptPay • กรุณาตรวจสอบยอดเงินเข้าก่อนยืนยัน</small></div><button className="save" disabled={paying} onClick={() => checkout('promptpay')}>ได้รับเงินแล้ว • ยืนยันการขาย</button></div></div>}
+    {showForm && <div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={() => setShowForm(false)}><X/></button></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([key,label]) => <label key={key}><span>{label}</span><input value={form[key]??''} onChange={(event) => setForm({...form,[key]:event.target.value})}/></label>)}{!editing && <label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={(event) => setForm({...form,stock_qty:event.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}
+    {stockProduct && <div className="overlay"><div className="modal"><div className="modalHead"><b>ปรับสต๊อก • {stockProduct.name}</b><button onClick={() => setStockProduct(null)}><X/></button></div><input className="bigInput" type="number" value={stockQty} onChange={(event) => setStockQty(event.target.value)} placeholder="+ รับเข้า / - ปรับออก"/><button className="save" onClick={adjustStock}>บันทึกสต๊อก</button></div></div>}
+    {showMemberForm && <div className="overlay"><div className="modal smallModal"><div className="modalHead"><b>เพิ่มสมาชิก</b><button onClick={() => setShowMemberForm(false)}><X/></button></div><label><span>ชื่อสมาชิก</span><input className="bigInput" value={memberForm.name} onChange={(event) => setMemberForm({...memberForm,name:event.target.value})}/></label><label><span>เบอร์โทร</span><input className="bigInput" inputMode="tel" value={memberForm.phone} onChange={(event) => setMemberForm({...memberForm,phone:event.target.value})}/></label><button className="save" onClick={createCustomer}>บันทึกสมาชิก</button></div></div>}
+    {customerDetail && <div className="overlay"><div className="modal"><div className="modalHead"><b>{customerDetail.customer.name}</b><button onClick={() => setCustomerDetail(null)}><X/></button></div><div className="memberStats"><article><Award/><b>{customerDetail.customer.points_balance}</b><small>คะแนนคงเหลือ</small></article><article><Banknote/><b>฿{money(customerDetail.customer.total_spent)}</b><small>ยอดซื้อสะสม</small></article></div><h2><History/> ประวัติคะแนน</h2>{customerDetail.transactions.length ? customerDetail.transactions.map((transaction) => <div className="historyRow" key={transaction.id}><span><b>{transaction.description || 'รายการคะแนน'}</b><small>{thaiDate(transaction.created_at)} • คงเหลือ {transaction.balance_after}</small></span><strong className={transaction.points > 0 ? 'pointPlus' : 'pointMinus'}>{transaction.points > 0 ? '+' : ''}{transaction.points}</strong></div>) : <p className="empty">ยังไม่มีประวัติคะแนน</p>}</div></div>}
+
+    <nav>{[['หน้าหลัก',Home],['สมาชิก',UserRound],['สินค้า',Package],['ขาย',ShoppingCart],['รายงาน',BarChart3],['ตั้งค่า',Settings]].map(([name,Icon]:any) => <button className={tab===name?'active':''} onClick={() => setTab(name)} key={name}><Icon/><span>{name}</span></button>)}</nav>
+  </main>;
+}
