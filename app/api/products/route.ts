@@ -1,27 +1,4 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-
-export async function GET() {
-  try {
-    const sql = getDb();
-    const products = await sql`SELECT id, sku, barcode, name, category, cost, price, stock_qty, low_stock_qty, unit, image_url, is_active FROM products WHERE is_active = true ORDER BY id`;
-    return NextResponse.json({ products });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Database connection failed' }, { status: 500 });
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { sku, barcode, name, category, cost = 0, price = 0, stock_qty = 0, low_stock_qty = 0, unit = 'ชิ้น' } = body;
-    if (!name) return NextResponse.json({ error: 'กรุณาระบุชื่อสินค้า' }, { status: 400 });
-    const sql = getDb();
-    const rows = await sql`INSERT INTO products (sku, barcode, name, category, cost, price, stock_qty, low_stock_qty, unit) VALUES (${sku || null}, ${barcode || null}, ${name}, ${category || null}, ${cost}, ${price}, ${stock_qty}, ${low_stock_qty}, ${unit}) RETURNING *`;
-    return NextResponse.json({ product: rows[0] }, { status: 201 });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'ไม่สามารถเพิ่มสินค้าได้' }, { status: 500 });
-  }
-}
+export async function GET(){try{const sql=getDb();const products=await sql`SELECT id,sku,barcode,qr_code,name,category,cost,price,stock_qty,low_stock_qty,unit,image_url,is_active FROM products WHERE is_active=true ORDER BY id`;return NextResponse.json({products})}catch(e){console.error(e);return NextResponse.json({error:'Database connection failed'},{status:500})}}
+export async function POST(request:Request){try{const b=await request.json();if(!b.name)return NextResponse.json({error:'กรุณาระบุชื่อสินค้า'},{status:400});const sql=getDb();const rows=await sql`INSERT INTO products(sku,barcode,qr_code,name,category,cost,price,stock_qty,low_stock_qty,unit) VALUES(${b.sku||null},${b.barcode||null},${b.qr_code||null},${b.name},${b.category||null},${Number(b.cost||0)},${Number(b.price||0)},${Number(b.stock_qty||0)},${Number(b.low_stock_qty||0)},${b.unit||'ชิ้น'}) RETURNING *`;return NextResponse.json({product:rows[0]},{status:201})}catch(e){console.error(e);return NextResponse.json({error:'ไม่สามารถเพิ่มสินค้าได้'},{status:500})}}
