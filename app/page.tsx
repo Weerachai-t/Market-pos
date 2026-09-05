@@ -5,13 +5,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Award, Banknote, BarChart3, Boxes, History, Home, Minus, Package,
   Pencil, Phone, Plus, QrCode, RefreshCw, Search, Settings, ShoppingCart,
-  LogOut, Trash2, UserPlus, UserRound, X,
+  ImagePlus, LogOut, Trash2, UserPlus, UserRound, X,
 } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import EmployeePanel from './components/EmployeePanel';
 import ReportPanel from './components/ReportPanel';
+import ThemePanel from './components/ThemePanel';
 
-type Product = { id:number; sku?:string; barcode?:string; qr_code?:string; name:string; price:number|string; cost?:number|string; stock_qty:number|string; low_stock_qty?:number|string; unit:string; category?:string };
+type Product = { id:number; sku?:string; barcode?:string; qr_code?:string; name:string; price:number|string; cost?:number|string; stock_qty:number|string; low_stock_qty?:number|string; unit:string; category?:string; image_url?:string };
 type Cart = Product & { qty:number };
 type Dashboard = { todayRevenue:number; todayBills:number; products:number; lowStock:number };
 type Customer = { id:number; name:string; phone:string; points_balance:number|string; total_spent:number|string; created_at?:string };
@@ -19,7 +20,7 @@ type PointTransaction = { id:number; sale_id?:number; transaction_type:'earn'|'r
 type CustomerDetail = { customer:Customer; transactions:PointTransaction[]; sales:Array<{id:number;receipt_no:string;sold_at:string;total:number|string;points_earned:number;points_redeemed:number}> };
 type Employee = { id:number;username:string;display_name:string;role:'admin'|'cashier';permissions:Record<string,boolean> };
 
-const blank = { sku:'', barcode:'', qr_code:'', name:'', category:'', cost:'0', price:'0', stock_qty:'0', low_stock_qty:'5', unit:'ชิ้น' };
+const blank = { sku:'', barcode:'', qr_code:'', name:'', category:'', cost:'0', price:'0', stock_qty:'0', low_stock_qty:'5', unit:'ชิ้น', image_url:'' };
 const emoji = (category?:string) => category === 'เครื่องดื่ม' ? '🥤' : category === 'อาหาร' ? '🍱' : category === 'เสื้อผ้า' ? '👕' : '📦';
 const money = (value:number|string) => Number(value || 0).toLocaleString('th-TH', { maximumFractionDigits:2 });
 const thaiDate = (value:string) => new Date(value).toLocaleString('th-TH', { dateStyle:'short', timeStyle:'short' });
@@ -50,10 +51,18 @@ export default function Page() {
   const [employee,setEmployee] = useState<Employee|null>(null);
   const [authLoading,setAuthLoading] = useState(true);
   const [setupRequired,setSetupRequired] = useState(false);
+  const [themeColor,setThemeColor] = useState('#111827');
   const checkoutReference = useRef<string|null>(null);
 
   useEffect(() => { setPromptpay(localStorage.getItem('promptpay') || ''); refreshSession(); }, []);
   useEffect(() => { if (employee && tab === 'สมาชิก') loadCustomers(); }, [tab,employee]);
+  useEffect(() => {
+    const hex = themeColor.replace('#','');
+    const red = parseInt(hex.slice(0,2),16), green = parseInt(hex.slice(2,4),16), blue = parseInt(hex.slice(4,6),16);
+    const contrast = (red*299 + green*587 + blue*114) / 1000 > 155 ? '#18202b' : '#ffffff';
+    document.documentElement.style.setProperty('--brand', themeColor);
+    document.documentElement.style.setProperty('--brand-contrast', contrast);
+  }, [themeColor]);
 
   const refreshSession = async () => {
     setAuthLoading(true);
@@ -72,12 +81,14 @@ export default function Page() {
   const load = async () => {
     setLoading(true);
     try {
-      const [productResponse,dashboardResponse] = await Promise.all([
+      const [productResponse,dashboardResponse,themeResponse] = await Promise.all([
         fetch('/api/products', { cache:'no-store' }),
         fetch('/api/dashboard', { cache:'no-store' }),
+        fetch('/api/settings/theme', { cache:'no-store' }),
       ]);
       setProducts((await productResponse.json()).products || []);
       setDash(await dashboardResponse.json());
+      if (themeResponse.ok) setThemeColor((await themeResponse.json()).color || '#111827');
     } finally { setLoading(false); }
   };
 
@@ -170,6 +181,38 @@ export default function Page() {
   const selectMember = (customer:Customer) => { setSelectedCustomer(customer); setMemberQuery(customer.phone); setRedeemPoints(0); };
   const openNew = () => { setEditing(null); setForm(blank); setShowForm(true); };
   const openEdit = (product:Product) => { setEditing(product.id); setForm({...product}); setShowForm(true); };
+  const selectProductImage = async (file?:File) => {
+    if (!file) return;
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) return setMessage('รองรับรูป JPG, PNG และ WebP เท่านั้น');
+    if (file.size > 8_000_000) return setMessage('กรุณาเลือกรูปต้นฉบับขนาดไม่เกิน 8 MB');
+    try {
+      const source = await new Promise<string>((resolve,reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('อ่านรูปไม่สำเร็จ'));
+        reader.readAsDataURL(file);
+      });
+      const picture = await new Promise<HTMLImageElement>((resolve,reject) => {
+        const element = new window.Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error('เปิดรูปไม่สำเร็จ'));
+        element.src = source;
+      });
+      const scale = Math.min(1, 900 / Math.max(picture.width,picture.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1,Math.round(picture.width*scale));
+      canvas.height = Math.max(1,Math.round(picture.height*scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('ประมวลผลรูปไม่สำเร็จ');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0,0,canvas.width,canvas.height);
+      context.drawImage(picture,0,0,canvas.width,canvas.height);
+      const imageUrl = canvas.toDataURL('image/jpeg',0.82);
+      if (imageUrl.length > 1_200_000) throw new Error('รูปมีรายละเอียดมากเกินไป กรุณาเลือกรูปอื่น');
+      setForm((current) => ({...current,image_url:imageUrl}));
+      setMessage('');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'เตรียมรูปสินค้าไม่สำเร็จ'); }
+  };
   const saveProduct = async () => {
     const response = await fetch(editing ? `/api/products/${editing}` : '/api/products', { method:editing?'PATCH':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(form) });
     const data = await response.json();
@@ -200,7 +243,7 @@ export default function Page() {
 
     {tab === 'ขาย' && can('sell') && <section>
       <div className="search"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหา / SKU / Barcode / QR"/></div>
-      {loading ? <p>กำลังโหลด...</p> : <div className="grid">{filtered.map((product) => <button className="product" key={product.id} onClick={() => add(product)}><span className="emoji">{emoji(product.category)}</span><b>{product.name}</b><small>เหลือ {product.stock_qty} {product.unit}</small><strong>฿{money(product.price)}</strong></button>)}</div>}
+      {loading ? <p>กำลังโหลด...</p> : <div className="grid">{filtered.map((product) => <button className="product" key={product.id} onClick={() => add(product)}>{product.image_url ? <Image className="productImage" src={product.image_url} alt={product.name} width={320} height={180} unoptimized/> : <span className="emoji">{emoji(product.category)}</span>}<b>{product.name}</b><small>เหลือ {product.stock_qty} {product.unit}</small><strong>฿{money(product.price)}</strong></button>)}</div>}
       {cart.length > 0 && <div className="cart">
         <div className="cartTitle"><b><ShoppingCart/> ตะกร้า ({count})</b><button onClick={clearCart} aria-label="ล้างตะกร้า"><Trash2/></button></div>
         {cart.map((item) => <div className="cartRow" key={item.id}><span>{item.name}<small>฿{money(item.price)}</small></span><div><button onClick={() => qty(item.id,-1)}><Minus/></button><b>{item.qty}</b><button onClick={() => qty(item.id,1)}><Plus/></button></div></div>)}
@@ -221,12 +264,12 @@ export default function Page() {
       <div className="memberList">{customers.map((customer) => <button className="customerCard" key={customer.id} onClick={() => openCustomer(customer)}><span><b>{customer.name}</b><small>{customer.phone}</small><small>ยอดซื้อ ฿{money(customer.total_spent)}</small></span><strong><Award/> {customer.points_balance}</strong></button>)}</div>
     </section>}
 
-    {tab === 'สินค้า' && <section><div className="manageHead"><b>{can('manage_products')?'จัดการสินค้า':'รายการสินค้า'}</b>{can('manage_products')&&<button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button>}</div>{filtered.map((product) => <div className="manageRow" key={product.id}><div className="prodInfo"><span>{emoji(product.category)}</span><div><b>{product.name}</b><small>{product.sku||'-'} • ฿{money(product.price)} • {product.stock_qty} {product.unit}</small>{product.qr_code && <small>QR: {product.qr_code}</small>}</div></div>{can('manage_products')&&<div className="actions"><button onClick={() => setStockProduct(product)}><Boxes/></button><button onClick={() => openEdit(product)}><Pencil/></button><button onClick={() => del(product)}><Trash2/></button></div>}</div>)}</section>}
+    {tab === 'สินค้า' && <section><div className="manageHead"><b>{can('manage_products')?'จัดการสินค้า':'รายการสินค้า'}</b>{can('manage_products')&&<button className="primary" onClick={openNew}><Plus/> เพิ่มสินค้า</button>}</div>{filtered.map((product) => <div className="manageRow" key={product.id}><div className="prodInfo">{product.image_url ? <Image className="productThumb" src={product.image_url} alt={product.name} width={58} height={58} unoptimized/> : <span>{emoji(product.category)}</span>}<div><b>{product.name}</b><small>{product.sku||'-'} • ฿{money(product.price)} • {product.stock_qty} {product.unit}</small>{product.qr_code && <small>QR: {product.qr_code}</small>}</div></div>{can('manage_products')&&<div className="actions"><button onClick={() => setStockProduct(product)} aria-label={`ปรับสต๊อก ${product.name}`}><Boxes/></button><button onClick={() => openEdit(product)} aria-label={`แก้ไข ${product.name}`}><Pencil/></button><button onClick={() => del(product)} aria-label={`ลบ ${product.name}`}><Trash2/></button></div>}</div>)}</section>}
     {tab === 'รายงาน' && can('view_reports') && <ReportPanel/>}
-    {tab === 'ตั้งค่า' && <section><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={(event) => setPromptpay(event.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={() => {localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>สมาชิกได้รับ 1 คะแนนทุกยอดชำระ 10 บาท และใช้ 1 คะแนนแทนเงินสดได้ 1 บาท</p>{employee.role==='admin'&&<EmployeePanel/>}</section>}
+    {tab === 'ตั้งค่า' && <section>{employee.role==='admin'&&<ThemePanel color={themeColor} onChange={setThemeColor}/>}<div className="settingsSection"><h2>PromptPay / QR รับเงิน</h2><div className="hero"><span>หมายเลข PromptPay ร้านค้า</span><input className="bigInput" value={promptpay} onChange={(event) => setPromptpay(event.target.value)} placeholder="เบอร์มือถือ หรือเลขประจำตัวผู้เสียภาษี"/><button className="save" onClick={() => {localStorage.setItem('promptpay',promptpay);setMessage('✓ บันทึก PromptPay แล้ว')}}>บันทึก PromptPay</button></div><p>สมาชิกได้รับ 1 คะแนนทุกยอดชำระ 10 บาท และใช้ 1 คะแนนแทนเงินสดได้ 1 บาท</p></div>{employee.role==='admin'&&<EmployeePanel/>}</section>}
 
     {qr && <div className="overlay"><div className="modal payModal"><div className="modalHead"><b>สแกนเพื่อชำระเงิน</b><button onClick={() => setQr('')}><X/></button></div><div className="qrWrap"><Image src={qr} alt="PromptPay QR" width={340} height={340} unoptimized/><span>ยอดชำระ</span><strong>฿{money(payable)}</strong><small>PromptPay • กรุณาตรวจสอบยอดเงินเข้าก่อนยืนยัน</small></div><button className="save" disabled={paying} onClick={() => checkout('promptpay')}>ได้รับเงินแล้ว • ยืนยันการขาย</button></div></div>}
-    {showForm && <div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={() => setShowForm(false)}><X/></button></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([key,label]) => <label key={key}><span>{label}</span><input value={form[key]??''} onChange={(event) => setForm({...form,[key]:event.target.value})}/></label>)}{!editing && <label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={(event) => setForm({...form,stock_qty:event.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}
+    {showForm && <div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={() => setShowForm(false)}><X/></button></div><div className="productImageEditor">{form.image_url ? <Image src={form.image_url} alt="ตัวอย่างรูปสินค้า" width={220} height={150} unoptimized/> : <div><ImagePlus/><span>ยังไม่มีรูปสินค้า</span></div>}<span className="imageEditorActions"><label className="imagePicker"><ImagePlus/> เลือกรูป<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectProductImage(event.target.files?.[0])}/></label>{form.image_url&&<button type="button" onClick={() => setForm({...form,image_url:''})}>ลบรูป</button>}</span><small>ระบบจะย่อรูปอัตโนมัติ • รองรับ JPG, PNG, WebP ไม่เกิน 8 MB</small></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([key,label]) => <label key={key}><span>{label}</span><input value={form[key]??''} onChange={(event) => setForm({...form,[key]:event.target.value})}/></label>)}{!editing && <label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={(event) => setForm({...form,stock_qty:event.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}
     {stockProduct && <div className="overlay"><div className="modal"><div className="modalHead"><b>ปรับสต๊อก • {stockProduct.name}</b><button onClick={() => setStockProduct(null)}><X/></button></div><input className="bigInput" type="number" value={stockQty} onChange={(event) => setStockQty(event.target.value)} placeholder="+ รับเข้า / - ปรับออก"/><button className="save" onClick={adjustStock}>บันทึกสต๊อก</button></div></div>}
     {showMemberForm && <div className="overlay"><div className="modal smallModal"><div className="modalHead"><b>เพิ่มสมาชิก</b><button onClick={() => setShowMemberForm(false)}><X/></button></div><label><span>ชื่อสมาชิก</span><input className="bigInput" value={memberForm.name} onChange={(event) => setMemberForm({...memberForm,name:event.target.value})}/></label><label><span>เบอร์โทร</span><input className="bigInput" inputMode="tel" value={memberForm.phone} onChange={(event) => setMemberForm({...memberForm,phone:event.target.value})}/></label><button className="save" onClick={createCustomer}>บันทึกสมาชิก</button></div></div>}
     {customerDetail && <div className="overlay"><div className="modal"><div className="modalHead"><b>{customerDetail.customer.name}</b><button onClick={() => setCustomerDetail(null)}><X/></button></div><div className="memberStats"><article><Award/><b>{customerDetail.customer.points_balance}</b><small>คะแนนคงเหลือ</small></article><article><Banknote/><b>฿{money(customerDetail.customer.total_spent)}</b><small>ยอดซื้อสะสม</small></article></div><h2><History/> ประวัติคะแนน</h2>{customerDetail.transactions.length ? customerDetail.transactions.map((transaction) => <div className="historyRow" key={transaction.id}><span><b>{transaction.description || 'รายการคะแนน'}</b><small>{thaiDate(transaction.created_at)} • คงเหลือ {transaction.balance_after}</small></span><strong className={transaction.points > 0 ? 'pointPlus' : 'pointMinus'}>{transaction.points > 0 ? '+' : ''}{transaction.points}</strong></div>) : <p className="empty">ยังไม่มีประวัติคะแนน</p>}</div></div>}

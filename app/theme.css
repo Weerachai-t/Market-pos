@@ -1,0 +1,27 @@
+:root{--brand:#111827;--brand-contrast:#fff}
+body{background:color-mix(in srgb,var(--brand) 5%,#f3f5f7)}
+.avatar,.hero,.searchButton,.memberSearch button,.pay button:last-child,.primary,.save,.authLogo,.reportStats article,nav .saleNav{background:var(--brand);color:var(--brand-contrast)}
+nav .active{color:var(--brand)}
+.barRow i{background:var(--brand)}
+.productImage{width:100%;height:92px;object-fit:cover;border-radius:12px;margin-bottom:5px}
+.productThumb{width:58px;height:58px;object-fit:cover;border-radius:12px;flex:0 0 auto}
+.productImageEditor{margin:16px 0;padding:14px;background:#f5f7f9;border:1px dashed #cdd3da;border-radius:16px;display:flex;flex-direction:column;align-items:center;gap:9px;text-align:center}
+.productImageEditor>img{width:220px;height:150px;object-fit:cover;border-radius:13px}
+.productImageEditor>div{width:220px;height:130px;border-radius:13px;background:#e8ebef;color:#747d88;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px}
+.productImageEditor small{color:#737b87}
+.imageEditorActions{display:flex;gap:8px;align-items:center}
+.imagePicker,.imageEditorActions button{border:0;border-radius:11px;padding:10px 13px;display:flex;flex-direction:row;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.imagePicker{background:var(--brand);color:var(--brand-contrast)}
+.imagePicker input{display:none}
+.imageEditorActions button{background:#e6e9ed;color:#9f2638}
+.themePanel{background:#fff;border:1px solid #e2e6ea;border-radius:19px;padding:17px;margin-bottom:16px}
+.themePanel h2{margin:0}.themePanel>p{color:#69727e;margin:7px 0 14px}
+.themeSwatches{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.themeSwatches>button{width:43px;height:43px;border:3px solid transparent;border-radius:14px;color:#fff;display:grid;place-items:center;box-shadow:inset 0 0 0 1px #ffffff35}
+.themeSwatches>button.selected{border-color:#fff;outline:2px solid #18202b}
+.themeSwatches svg{width:18px}
+.customColor{width:55px;align-items:center;gap:2px;color:#69727e}
+.customColor input{width:43px;height:43px;border:0;padding:0;background:transparent;cursor:pointer}
+.customColor span{font-size:10px}
+.themePanel .save{max-width:260px}.themePanel .success,.themePanel .notice{margin-bottom:0}
+.settingsSection{border-top:1px solid #dfe3e8;padding-top:10px}
