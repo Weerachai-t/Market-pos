@@ -48,6 +48,8 @@ export default function Page() {
   const [showMemberForm,setShowMemberForm] = useState(false);
   const [memberForm,setMemberForm] = useState({ name:'', phone:'' });
   const [customerDetail,setCustomerDetail] = useState<CustomerDetail|null>(null);
+  const [editingCustomerName,setEditingCustomerName] = useState<string|null>(null);
+  const [savingCustomerName,setSavingCustomerName] = useState(false);
   const [employee,setEmployee] = useState<Employee|null>(null);
   const [authLoading,setAuthLoading] = useState(true);
   const [setupRequired,setSetupRequired] = useState(false);
@@ -101,8 +103,26 @@ export default function Page() {
   const openCustomer = async (customer:Customer) => {
     const response = await fetch(`/api/customers/${customer.id}`, { cache:'no-store' });
     const data = await response.json();
-    if (response.ok) setCustomerDetail(data);
+    if (response.ok) { setCustomerDetail(data); setEditingCustomerName(null); }
     else setMessage(data.error);
+  };
+
+  const saveCustomerName = async () => {
+    if (!customerDetail || editingCustomerName === null || savingCustomerName) return;
+    setSavingCustomerName(true);
+    try {
+      const response = await fetch(`/api/customers/${customerDetail.customer.id}`, {
+        method:'PATCH', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ name:editingCustomerName }),
+      });
+      const data = await response.json();
+      if (!response.ok) return setMessage(data.error || 'แก้ไขชื่อสมาชิกไม่สำเร็จ');
+      setCustomerDetail((current) => current ? {...current,customer:data.customer} : current);
+      setCustomers((current) => current.map((customer) => customer.id === data.customer.id ? {...customer,...data.customer} : customer));
+      setSelectedCustomer((current) => current?.id === data.customer.id ? {...current,...data.customer} : current);
+      setEditingCustomerName(null);
+      setMessage('✓ แก้ไขชื่อสมาชิกแล้ว');
+    } catch { setMessage('เชื่อมต่อระบบเพื่อแก้ไขชื่อสมาชิกไม่สำเร็จ'); }
+    finally { setSavingCustomerName(false); }
   };
 
   const createCustomer = async () => {
@@ -272,7 +292,7 @@ export default function Page() {
     {showForm && <div className="overlay"><div className="modal"><div className="modalHead"><b>{editing?'แก้ไขสินค้า':'เพิ่มสินค้า'}</b><button onClick={() => setShowForm(false)}><X/></button></div><div className="productImageEditor">{form.image_url ? <Image src={form.image_url} alt="ตัวอย่างรูปสินค้า" width={220} height={150} unoptimized/> : <div><ImagePlus/><span>ยังไม่มีรูปสินค้า</span></div>}<span className="imageEditorActions"><label className="imagePicker"><ImagePlus/> เลือกรูป<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectProductImage(event.target.files?.[0])}/></label>{form.image_url&&<button type="button" onClick={() => setForm({...form,image_url:''})}>ลบรูป</button>}</span><small>ระบบจะย่อรูปอัตโนมัติ • รองรับ JPG, PNG, WebP ไม่เกิน 8 MB</small></div><div className="formGrid">{[['sku','SKU'],['barcode','Barcode'],['qr_code','ข้อมูล QR Code'],['name','ชื่อสินค้า'],['category','หมวดหมู่'],['cost','ราคาทุน'],['price','ราคาขาย'],['low_stock_qty','แจ้งเตือนเมื่อเหลือ'],['unit','หน่วย']].map(([key,label]) => <label key={key}><span>{label}</span><input value={form[key]??''} onChange={(event) => setForm({...form,[key]:event.target.value})}/></label>)}{!editing && <label><span>สต๊อกเริ่มต้น</span><input value={form.stock_qty} onChange={(event) => setForm({...form,stock_qty:event.target.value})}/></label>}</div><button className="save" onClick={saveProduct}>บันทึกสินค้า</button></div></div>}
     {stockProduct && <div className="overlay"><div className="modal"><div className="modalHead"><b>ปรับสต๊อก • {stockProduct.name}</b><button onClick={() => setStockProduct(null)}><X/></button></div><input className="bigInput" type="number" value={stockQty} onChange={(event) => setStockQty(event.target.value)} placeholder="+ รับเข้า / - ปรับออก"/><button className="save" onClick={adjustStock}>บันทึกสต๊อก</button></div></div>}
     {showMemberForm && <div className="overlay"><div className="modal smallModal"><div className="modalHead"><b>เพิ่มสมาชิก</b><button onClick={() => setShowMemberForm(false)}><X/></button></div><label><span>ชื่อสมาชิก</span><input className="bigInput" value={memberForm.name} onChange={(event) => setMemberForm({...memberForm,name:event.target.value})}/></label><label><span>เบอร์โทร</span><input className="bigInput" inputMode="tel" value={memberForm.phone} onChange={(event) => setMemberForm({...memberForm,phone:event.target.value})}/></label><button className="save" onClick={createCustomer}>บันทึกสมาชิก</button></div></div>}
-    {customerDetail && <div className="overlay"><div className="modal"><div className="modalHead"><b>{customerDetail.customer.name}</b><button onClick={() => setCustomerDetail(null)}><X/></button></div><div className="memberStats"><article><Award/><b>{customerDetail.customer.points_balance}</b><small>คะแนนคงเหลือ</small></article><article><Banknote/><b>฿{money(customerDetail.customer.total_spent)}</b><small>ยอดซื้อสะสม</small></article></div><h2><History/> ประวัติคะแนน</h2>{customerDetail.transactions.length ? customerDetail.transactions.map((transaction) => <div className="historyRow" key={transaction.id}><span><b>{transaction.description || 'รายการคะแนน'}</b><small>{thaiDate(transaction.created_at)} • คงเหลือ {transaction.balance_after}</small></span><strong className={transaction.points > 0 ? 'pointPlus' : 'pointMinus'}>{transaction.points > 0 ? '+' : ''}{transaction.points}</strong></div>) : <p className="empty">ยังไม่มีประวัติคะแนน</p>}</div></div>}
+    {customerDetail && <div className="overlay"><div className="modal"><div className="modalHead"><b>{customerDetail.customer.name}</b><div className="modalHeadActions">{can('manage_customers')&&<button onClick={() => setEditingCustomerName(customerDetail.customer.name)} aria-label="แก้ไขชื่อสมาชิก"><Pencil/></button>}<button onClick={() => {setCustomerDetail(null);setEditingCustomerName(null)}} aria-label="ปิด"><X/></button></div></div>{editingCustomerName!==null&&<div className="editMemberName"><label><span>ชื่อสมาชิก</span><input autoFocus maxLength={120} value={editingCustomerName} onChange={(event) => setEditingCustomerName(event.target.value)}/></label><div><button type="button" onClick={() => setEditingCustomerName(null)}>ยกเลิก</button><button type="button" className="primary" disabled={savingCustomerName||!editingCustomerName.trim()} onClick={saveCustomerName}>{savingCustomerName?'กำลังบันทึก...':'บันทึกชื่อ'}</button></div></div>}<div className="memberStats"><article><Award/><b>{customerDetail.customer.points_balance}</b><small>คะแนนคงเหลือ</small></article><article><Banknote/><b>฿{money(customerDetail.customer.total_spent)}</b><small>ยอดซื้อสะสม</small></article></div><h2><History/> ประวัติคะแนน</h2>{customerDetail.transactions.length ? customerDetail.transactions.map((transaction) => <div className="historyRow" key={transaction.id}><span><b>{transaction.description || 'รายการคะแนน'}</b><small>{thaiDate(transaction.created_at)} • คงเหลือ {transaction.balance_after}</small></span><strong className={transaction.points > 0 ? 'pointPlus' : 'pointMinus'}>{transaction.points > 0 ? '+' : ''}{transaction.points}</strong></div>) : <p className="empty">ยังไม่มีประวัติคะแนน</p>}</div></div>}
 
     <nav>{[['หน้าหลัก',Home,true],['สมาชิก',UserRound,can('manage_customers')||can('sell')],['สินค้า',Package,true],['ขาย',ShoppingCart,can('sell')],['รายงาน',BarChart3,can('view_reports')],['ตั้งค่า',Settings,true]].filter((item)=>item[2]).map(([name,Icon]:any) => <button className={`${tab===name?'active ':''}${name==='ขาย'?'saleNav':''}`} onClick={() => setTab(name)} key={name}><Icon/><span>{name}</span></button>)}</nav>
   </main>;

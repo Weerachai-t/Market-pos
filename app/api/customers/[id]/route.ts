@@ -23,3 +23,30 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: 'โหลดประวัติสมาชิกไม่สำเร็จ' }, { status: 500 });
   }
 }
+
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const employee = await getCurrentEmployee();
+  if (!employee) return NextResponse.json({ error:'กรุณาเข้าสู่ระบบ' }, { status:401 });
+  if (!hasPermission(employee, 'manage_customers')) return NextResponse.json({ error:'ไม่มีสิทธิ์จัดการสมาชิก' }, { status:403 });
+  try {
+    const { id } = await context.params;
+    const customerId = Number(id);
+    if (!Number.isInteger(customerId) || customerId <= 0) return NextResponse.json({ error:'รหัสสมาชิกไม่ถูกต้อง' }, { status:400 });
+    const body = await request.json();
+    const name = String(body.name || '').trim();
+    if (!name) return NextResponse.json({ error:'กรุณากรอกชื่อสมาชิก' }, { status:400 });
+    if (name.length > 120) return NextResponse.json({ error:'ชื่อสมาชิกต้องไม่เกิน 120 ตัวอักษร' }, { status:400 });
+    const sql = getDb();
+    const rows = await sql`
+      UPDATE customers
+         SET name=${name}, updated_at=NOW()
+       WHERE id=${customerId}
+       RETURNING id, name, phone, points_balance, total_spent, created_at, updated_at
+    `;
+    if (!rows[0]) return NextResponse.json({ error:'ไม่พบสมาชิก' }, { status:404 });
+    return NextResponse.json({ customer:rows[0] });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error:'แก้ไขชื่อสมาชิกไม่สำเร็จ' }, { status:500 });
+  }
+}
