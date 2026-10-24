@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
 import { getCurrentEmployee, hasPermission, requireTenant } from '../../../lib/auth';
+import { requireActiveSubscription } from '../../../lib/subscription';
 
 type Item = { productId?: number; product_id?: number; quantity: number };
 
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
     }
 
     const tenantId = requireTenant(employee);
+    await requireActiveSubscription(tenantId);
     const sql = getDb();
     const cashReceived = body.cashReceived == null ? null : Number(body.cashReceived);
     const rows = await sql`
@@ -56,6 +58,8 @@ export async function POST(request: Request) {
       customerPointsBalance: sale.customer_points_balance == null ? null : Number(sale.customer_points_balance),
     });
   } catch (error) {
+    const raw=error instanceof Error?error.message:'';
+    if(raw==='SUBSCRIPTION_EXPIRED')return NextResponse.json({error:'แพ็กเกจหมดอายุ กรุณาต่ออายุสมาชิกก่อนขายสินค้า'},{status:402});
     console.error(error);
     const message = error instanceof Error ? error.message : 'บันทึกการขายไม่สำเร็จ';
     const known = ['ไม่มีสินค้า', 'ไม่ถูกต้อง', 'ไม่เพียงพอ', 'ไม่พบ', 'ต้องเลือก', 'เกินยอด'];
