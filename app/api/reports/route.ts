@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
+import { getCurrentEmployee, hasPermission, requireTenant } from '../../../lib/auth';
 import { getDb } from '../../../lib/db';
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -45,12 +45,13 @@ export async function GET(request:Request) {
   if (!hasPermission(employee,'view_reports')) return NextResponse.json({error:'ไม่มีสิทธิ์ดูรายงาน'}, {status:403});
   try {
     const selected = rangeFrom(new URL(request.url));
+    const tenantId = requireTenant(employee);
     const sql = getDb();
     const [summaryRows,daily,topProducts,payments,employees] = await Promise.all([
       sql`
         WITH filtered_sales AS (
           SELECT id,total,discount FROM sales
-           WHERE status='completed' AND sold_at>=${selected.start} AND sold_at<${selected.end}
+           WHERE tenant_id=${tenantId} AND status='completed' AND sold_at>=${selected.start} AND sold_at<${selected.end}
         )
         SELECT COUNT(*)::int AS bills, COALESCE(SUM(total),0)::float AS revenue,
                COALESCE(SUM(discount),0)::float AS discount,
@@ -61,13 +62,13 @@ export async function GET(request:Request) {
       sql`
         SELECT (sold_at AT TIME ZONE 'Asia/Bangkok')::date::text AS date,
                COUNT(*)::int AS bills, SUM(total)::float AS revenue
-          FROM sales WHERE status='completed' AND sold_at>=${selected.start} AND sold_at<${selected.end}
+          FROM sales WHERE tenant_id=${tenantId} AND status='completed' AND sold_at>=${selected.start} AND sold_at<${selected.end}
          GROUP BY 1 ORDER BY 1
       `,
       sql`
         SELECT si.product_name, SUM(si.quantity)::float AS quantity, SUM(si.line_total)::float AS revenue
           FROM sale_items si JOIN sales s ON s.id=si.sale_id
-         WHERE s.status='completed' AND s.sold_at>=${selected.start} AND s.sold_at<${selected.end}
+         WHERE s.tenant_id=${tenantId} AND s.status='completed' AND s.sold_at>=${selected.start} AND s.sold_at<${selected.end}
          GROUP BY si.product_name ORDER BY revenue DESC LIMIT 10
       `,
       sql`
@@ -79,7 +80,7 @@ export async function GET(request:Request) {
         SELECT COALESCE(u.display_name,'ไม่ระบุพนักงาน') AS employee_name,
                COUNT(*)::int AS bills, SUM(s.total)::float AS revenue
           FROM sales s LEFT JOIN users u ON u.id=s.cashier_id
-         WHERE s.status='completed' AND s.sold_at>=${selected.start} AND s.sold_at<${selected.end}
+         WHERE s.tenant_id=${tenantId} AND s.status='completed' AND s.sold_at>=${selected.start} AND s.sold_at<${selected.end}
          GROUP BY u.id,u.display_name ORDER BY revenue DESC
       `,
     ]);
