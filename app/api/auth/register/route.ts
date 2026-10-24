@@ -24,12 +24,22 @@ export async function POST(request:Request) {
     const rows = await sql`
       WITH new_tenant AS (
         INSERT INTO tenants(account_code,store_name,owner_name,phone,email,status,plan)
-        VALUES(${accountCode},${storeName},${ownerName},${phone||null},${email},'active','standard')
+        VALUES(${accountCode},${storeName},${ownerName},${phone||null},${email},'active','starter')
         RETURNING id,account_code,store_name
       ),
       new_settings AS (
         INSERT INTO tenant_settings(tenant_id)
         SELECT id FROM new_tenant
+        RETURNING tenant_id
+      ),
+      new_branch AS (
+        INSERT INTO branches(tenant_id,branch_code,name)
+        SELECT id,'MAIN','สาขาหลัก' FROM new_tenant
+        RETURNING tenant_id
+      ),
+      new_subscription AS (
+        INSERT INTO subscriptions(tenant_id,plan_code,billing_cycle,status,starts_at,expires_at)
+        SELECT id,'starter','trial','trial',NOW(),NOW()+INTERVAL '30 days' FROM new_tenant
         RETURNING tenant_id
       ),
       new_user AS (
