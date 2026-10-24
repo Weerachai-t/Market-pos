@@ -52,3 +52,29 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error:'แก้ไขชื่อสมาชิกไม่สำเร็จ' }, { status:500 });
   }
 }
+
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const employee = await getCurrentEmployee();
+  if (!employee) return NextResponse.json({ error:'กรุณาเข้าสู่ระบบ' }, { status:401 });
+  if (!hasPermission(employee, 'manage_customers')) return NextResponse.json({ error:'ไม่มีสิทธิ์ลบสมาชิก' }, { status:403 });
+  try {
+    const { id } = await context.params;
+    const customerId = Number(id);
+    if (!Number.isInteger(customerId) || customerId <= 0) return NextResponse.json({ error:'รหัสสมาชิกไม่ถูกต้อง' }, { status:400 });
+    const tenantId = requireTenant(employee);
+    const sql = getDb();
+
+    const rows = await sql`
+      DELETE FROM customers
+       WHERE id=${customerId} AND tenant_id=${tenantId}
+       RETURNING id,name,phone
+    `;
+    if (!rows[0]) return NextResponse.json({ error:'ไม่พบสมาชิก' }, { status:404 });
+
+    return NextResponse.json({ success:true, customer:rows[0] });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error:'ลบสมาชิกไม่สำเร็จ' }, { status:500 });
+  }
+}
