@@ -10,17 +10,33 @@ export async function GET() {
     const sql = getDb();
     const tenants = await sql`
       SELECT t.id,t.account_code,t.store_name,t.owner_name,t.phone,t.email,t.status,t.plan,t.created_at,
-             COUNT(DISTINCT u.id)::int AS users,
-             COUNT(DISTINCT p.id)::int AS products,
-             COUNT(DISTINCT c.id)::int AS customers,
-             COUNT(DISTINCT s.id)::int AS bills,
-             COALESCE(SUM(DISTINCT CASE WHEN s.status='completed' THEN s.total ELSE 0 END),0)::float AS revenue
+             COALESCE(u.users,0)::int AS users,
+             COALESCE(p.products,0)::int AS products,
+             COALESCE(c.customers,0)::int AS customers,
+             COALESCE(b.branches,0)::int AS branches,
+             COALESCE(sa.bills,0)::int AS bills,
+             COALESCE(sa.revenue,0)::float AS revenue,
+             sub.plan_code,sub.billing_cycle,sub.status AS subscription_status,sub.expires_at,
+             COALESCE(pay.pending_payments,0)::int AS pending_payments
         FROM tenants t
-        LEFT JOIN users u ON u.tenant_id=t.id
-        LEFT JOIN products p ON p.tenant_id=t.id AND p.is_active=TRUE
-        LEFT JOIN customers c ON c.tenant_id=t.id
-        LEFT JOIN sales s ON s.tenant_id=t.id
-       GROUP BY t.id
+        LEFT JOIN LATERAL (SELECT COUNT(*) users FROM users x WHERE x.tenant_id=t.id AND x.is_active=TRUE) u ON TRUE
+        LEFT JOIN LATERAL (SELECT COUNT(*) products FROM products x WHERE x.tenant_id=t.id AND x.is_active=TRUE) p ON TRUE
+        LEFT JOIN LATERAL (SELECT COUNT(*) customers FROM customers x WHERE x.tenant_id=t.id) c ON TRUE
+        LEFT JOIN LATERAL (SELECT COUNT(*) branches FROM branches x WHERE x.tenant_id=t.id AND x.is_active=TRUE) b ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) bills,COALESCE(SUM(total),0) revenue
+            FROM sales x WHERE x.tenant_id=t.id AND x.status='completed'
+        ) sa ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT plan_code,billing_cycle,status,expires_at
+            FROM subscriptions x
+           WHERE x.tenant_id=t.id AND x.status IN ('trial','active','past_due')
+           ORDER BY x.expires_at DESC LIMIT 1
+        ) sub ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) pending_payments FROM subscription_payments x
+           WHERE x.tenant_id=t.id AND x.status='pending'
+        ) pay ON TRUE
        ORDER BY t.created_at DESC
     `;
     return NextResponse.json({tenants});
