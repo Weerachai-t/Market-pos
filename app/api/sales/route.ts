@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
+import { getCurrentEmployee, hasPermission, requireTenant } from '../../../lib/auth';
 
 type Item = { productId?: number; product_id?: number; quantity: number };
 
@@ -28,10 +28,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'ข้อมูลสินค้าไม่ถูกต้อง' }, { status: 400 });
     }
 
+    const tenantId = requireTenant(employee);
     const sql = getDb();
     const cashReceived = body.cashReceived == null ? null : Number(body.cashReceived);
     const rows = await sql`
-      SELECT * FROM process_pos_sale_by_cashier(
+      SELECT * FROM process_pos_sale_by_cashier_tenant(
+        ${tenantId},
         ${JSON.stringify(dbItems)}::jsonb,
         ${paymentMethod},
         ${cashReceived},
