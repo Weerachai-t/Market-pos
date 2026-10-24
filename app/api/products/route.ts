@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../lib/db';
-import { getCurrentEmployee, hasPermission } from '../../../lib/auth';
+import { getCurrentEmployee, hasPermission, requireTenant } from '../../../lib/auth';
 
 const IMAGE_PATTERN = /^data:image\/(jpeg|png|webp);base64,[a-z0-9+/=]+$/i;
 const MAX_IMAGE_LENGTH = 1_200_000;
@@ -15,11 +15,12 @@ export async function GET() {
   const employee = await getCurrentEmployee();
   if (!employee) return NextResponse.json({ error:'กรุณาเข้าสู่ระบบ' }, { status:401 });
   try {
+    const tenantId = requireTenant(employee);
     const sql = getDb();
     const products = await sql`
       SELECT id, sku, barcode, qr_code, name, category, cost, price, stock_qty,
              low_stock_qty, unit, image_url, is_active
-        FROM products WHERE is_active=TRUE ORDER BY id
+        FROM products WHERE tenant_id=${tenantId} AND is_active=TRUE ORDER BY id
     `;
     return NextResponse.json({ products });
   } catch (error) {
@@ -36,12 +37,13 @@ export async function POST(request:Request) {
     const body = await request.json();
     if (!body.name) return NextResponse.json({ error:'กรุณาระบุชื่อสินค้า' }, { status:400 });
     const imageUrl = productImage(body.image_url);
+    const tenantId = requireTenant(employee);
     const sql = getDb();
     const rows = await sql`
       INSERT INTO products
-        (sku, barcode, qr_code, name, category, cost, price, stock_qty, low_stock_qty, unit, image_url)
+        (tenant_id, sku, barcode, qr_code, name, category, cost, price, stock_qty, low_stock_qty, unit, image_url)
       VALUES
-        (${body.sku || null}, ${body.barcode || null}, ${body.qr_code || null}, ${body.name},
+        (${tenantId}, ${body.sku || null}, ${body.barcode || null}, ${body.qr_code || null}, ${body.name},
          ${body.category || null}, ${Number(body.cost || 0)}, ${Number(body.price || 0)},
          ${Number(body.stock_qty || 0)}, ${Number(body.low_stock_qty || 0)}, ${body.unit || 'ชิ้น'}, ${imageUrl})
       RETURNING *
