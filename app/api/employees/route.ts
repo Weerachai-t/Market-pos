@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentEmployee, hashPassword, hasPermission } from '../../../lib/auth';
+import { getCurrentEmployee, hashPassword, hasPermission, requireTenant } from '../../../lib/auth';
 import { getDb } from '../../../lib/db';
 
 const cleanPermissions = (value:unknown) => {
@@ -17,8 +17,9 @@ export async function GET() {
   if (!current) return NextResponse.json({error:'กรุณาเข้าสู่ระบบ'}, {status:401});
   if (!hasPermission(current,'manage_employees')) return NextResponse.json({error:'ไม่มีสิทธิ์จัดการพนักงาน'}, {status:403});
   try {
+    const tenantId = requireTenant(current);
     const sql = getDb();
-    const employees = await sql`SELECT id, username, display_name, phone, email, role, permissions, is_active, last_login_at, created_at FROM users ORDER BY is_active DESC, display_name`;
+    const employees = await sql`SELECT id, username, display_name, phone, email, role, permissions, is_active, last_login_at, created_at FROM users WHERE tenant_id=${tenantId} ORDER BY is_active DESC, display_name`;
     return NextResponse.json({employees});
   } catch (error) {
     console.error(error);
@@ -41,10 +42,11 @@ export async function POST(request:Request) {
     if (password.length < 8) return NextResponse.json({error:'รหัสผ่านต้องมีอย่างน้อย 8 ตัว'}, {status:400});
     const passwordHash = await hashPassword(password);
     const permissions = cleanPermissions(body.permissions);
+    const tenantId = requireTenant(current);
     const sql = getDb();
     const rows = await sql`
-      INSERT INTO users (username, display_name, password_hash, phone, email, role, permissions)
-      VALUES (${username}, ${displayName}, ${passwordHash}, ${String(body.phone||'').replace(/\D/g,'')||null}, ${String(body.email||'').trim()||null}, ${role}, ${JSON.stringify(permissions)}::jsonb)
+      INSERT INTO users (tenant_id, platform_role, username, display_name, password_hash, phone, email, role, permissions)
+      VALUES (${tenantId}, ${role==='admin'?'tenant_admin':'tenant_user'}, ${username}, ${displayName}, ${passwordHash}, ${String(body.phone||'').replace(/\D/g,'')||null}, ${String(body.email||'').trim()||null}, ${role}, ${JSON.stringify(permissions)}::jsonb)
       RETURNING id, username, display_name, phone, email, role, permissions, is_active, created_at
     `;
     return NextResponse.json({employee:rows[0]}, {status:201});
