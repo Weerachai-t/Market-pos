@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentEmployee, hashPassword, hasPermission } from '../../../../lib/auth';
+import { getCurrentEmployee, hashPassword, hasPermission, requireTenant } from '../../../../lib/auth';
 import { getDb } from '../../../../lib/db';
 
 export async function PATCH(request:Request, context:{params:Promise<{id:string}>}) {
@@ -14,14 +14,15 @@ export async function PATCH(request:Request, context:{params:Promise<{id:string}
     const displayName = String(body.displayName||'').trim();
     if (!displayName) return NextResponse.json({error:'กรุณากรอกชื่อพนักงาน'}, {status:400});
     if (body.password && String(body.password).length < 8) return NextResponse.json({error:'รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัว'}, {status:400});
+    const tenantId = requireTenant(current);
     const sql = getDb();
-    const [target] = await sql`SELECT id, role, is_active FROM users WHERE id=${employeeId}`;
+    const [target] = await sql`SELECT id, role, is_active FROM users WHERE id=${employeeId} AND tenant_id=${tenantId}`;
     if (!target) return NextResponse.json({error:'ไม่พบพนักงาน'}, {status:404});
     const nextRole = body.role === 'admin' ? 'admin' : 'cashier';
     const nextActive = body.isActive !== false;
     if (employeeId === current.id && (!nextActive || nextRole !== 'admin')) return NextResponse.json({error:'ไม่สามารถปิดหรือเปลี่ยนสิทธิ์บัญชีที่กำลังใช้งาน'}, {status:400});
     if (target.role === 'admin' && (nextRole !== 'admin' || !nextActive)) {
-      const [count] = await sql`SELECT COUNT(*)::int AS count FROM users WHERE role='admin' AND is_active=TRUE`;
+      const [count] = await sql`SELECT COUNT(*)::int AS count FROM users WHERE tenant_id=${tenantId} AND role='admin' AND is_active=TRUE`;
       if (Number(count.count) <= 1) return NextResponse.json({error:'ระบบต้องมี Admin ที่ใช้งานได้อย่างน้อย 1 คน'}, {status:400});
     }
     const permissions = body.permissions && typeof body.permissions === 'object' ? {
@@ -36,10 +37,10 @@ export async function PATCH(request:Request, context:{params:Promise<{id:string}
         display_name=${displayName},
         phone=${String(body.phone||'').replace(/\D/g,'')||null},
         email=${String(body.email||'').trim()||null},
-        role=${nextRole}, permissions=${JSON.stringify(permissions)}::jsonb,
+        role=${nextRole}, platform_role=${nextRole==='admin'?'tenant_admin':'tenant_user'}, permissions=${JSON.stringify(permissions)}::jsonb,
         is_active=${nextActive},
         password_hash=COALESCE(${passwordHash},password_hash), updated_at=NOW()
-      WHERE id=${employeeId}
+      WHERE id=${employeeId} AND tenant_id=${tenantId}
       RETURNING id, username, display_name, phone, email, role, permissions, is_active, last_login_at
     `;
     return NextResponse.json({employee:rows[0]});
