@@ -11,6 +11,8 @@ export type Permission = 'sell' | 'manage_products' | 'view_reports' | 'manage_c
 export type Employee = {
   id:number; username:string; display_name:string; phone?:string|null; email?:string|null;
   role:'admin'|'cashier'; is_active:boolean; permissions:Record<string,boolean>;
+  tenant_id:number|null; platform_role:'super_admin'|'tenant_admin'|'tenant_user';
+  store_name?:string|null; tenant_status?:string|null; plan?:string|null;
 };
 
 export async function hashPassword(password:string) {
@@ -54,19 +56,36 @@ export async function getCurrentEmployee():Promise<Employee|null> {
   if (!token) return null;
   const sql = getDb();
   const rows = await sql`
-    SELECT u.id, u.username, u.display_name, u.phone, u.email, u.role, u.is_active, u.permissions
+    SELECT u.id,u.username,u.display_name,u.phone,u.email,u.role,u.is_active,u.permissions,
+           u.tenant_id,u.platform_role,t.store_name,t.status AS tenant_status,t.plan
       FROM employee_sessions s
       JOIN users u ON u.id=s.user_id
-     WHERE s.token_hash=${hashToken(token)} AND s.expires_at > NOW() AND u.is_active=TRUE
+      LEFT JOIN tenants t ON t.id=u.tenant_id
+     WHERE s.token_hash=${hashToken(token)} AND s.expires_at>NOW() AND u.is_active=TRUE
+       AND (u.platform_role='super_admin' OR t.status='active')
      LIMIT 1
   `;
   return rows[0] ? {
-    ...rows[0], id:Number(rows[0].id), permissions:rows[0].permissions || {}, is_active:Boolean(rows[0].is_active),
+    ...rows[0],
+    id:Number(rows[0].id),
+    tenant_id:rows[0].tenant_id==null?null:Number(rows[0].tenant_id),
+    permissions:rows[0].permissions || {},
+    is_active:Boolean(rows[0].is_active),
   } as Employee : null;
 }
 
 export function hasPermission(employee:Employee, permission:Permission) {
-  if (employee.role === 'admin') return true;
+  if (employee.platform_role === 'super_admin') return true;
+  if (employee.role === 'admin' || employee.platform_role === 'tenant_admin') return true;
   if (permission === 'manage_employees') return false;
   return employee.permissions?.[permission] === true;
+}
+
+export function requireTenant(employee:Employee) {
+  if (!employee.tenant_id) throw new Error('TENANT_REQUIRED');
+  return employee.tenant_id;
+}
+
+export function isSuperAdmin(employee:Employee) {
+  return employee.platform_role === 'super_admin';
 }
