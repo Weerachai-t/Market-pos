@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '../../../../lib/db';
-import { getCurrentEmployee, hasPermission } from '../../../../lib/auth';
+import { getCurrentEmployee, hasPermission, requireTenant } from '../../../../lib/auth';
 
 const IMAGE_PATTERN = /^data:image\/(jpeg|png|webp);base64,[a-z0-9+/=]+$/i;
 
@@ -19,6 +19,7 @@ export async function PATCH(request:Request, { params }:{ params:Promise<{id:str
     const body = await request.json();
     if (!body.name) return NextResponse.json({ error:'กรุณาระบุชื่อสินค้า' }, { status:400 });
     const imageUrl = productImage(body.image_url);
+    const tenantId = requireTenant(employee);
     const sql = getDb();
     const rows = await sql`
       UPDATE products
@@ -26,7 +27,7 @@ export async function PATCH(request:Request, { params }:{ params:Promise<{id:str
              name=${body.name}, category=${body.category || null}, cost=${Number(body.cost || 0)},
              price=${Number(body.price || 0)}, low_stock_qty=${Number(body.low_stock_qty || 0)},
              unit=${body.unit || 'ชิ้น'}, image_url=${imageUrl}, updated_at=NOW()
-       WHERE id=${id} AND is_active=TRUE RETURNING *
+       WHERE id=${id} AND tenant_id=${tenantId} AND is_active=TRUE RETURNING *
     `;
     if (!rows.length) return NextResponse.json({ error:'ไม่พบสินค้า' }, { status:404 });
     return NextResponse.json({ product:rows[0] });
@@ -43,8 +44,9 @@ export async function DELETE(_:Request, { params }:{ params:Promise<{id:string}>
   if (!hasPermission(employee, 'manage_products')) return NextResponse.json({ error:'ไม่มีสิทธิ์จัดการสินค้า' }, { status:403 });
   try {
     const { id } = await params;
+    const tenantId = requireTenant(employee);
     const sql = getDb();
-    await sql`UPDATE products SET is_active=FALSE, updated_at=NOW() WHERE id=${id}`;
+    await sql`UPDATE products SET is_active=FALSE, updated_at=NOW() WHERE id=${id} AND tenant_id=${tenantId}`;
     return NextResponse.json({ success:true });
   } catch (error) {
     console.error(error);
